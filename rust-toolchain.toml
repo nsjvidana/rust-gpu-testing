@@ -1,0 +1,6 @@
+[toolchain]
+channel = "nightly-2025-11-13"
+components = ["rust-src", "rustc-dev", "llvm-tools"]
+
+# The commit hashes of spirv-builder and spirv-std crates MUST be this commit hash:
+# commit_hash = 01867557cd7dbe256a031a7b8e28d05daecd75ab

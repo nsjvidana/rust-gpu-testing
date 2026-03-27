@@ -1,0 +1,10 @@
+[package]
+name = "shader_crate"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+spirv-std.workspace = true
+
+[lints]
+workspace = true

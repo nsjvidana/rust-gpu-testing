@@ -1,0 +1,16 @@
+[package]
+name = "graphics_testing"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+wgpu.workspace = true
+pollster.workspace = true
+bytemuck.workspace = true
+rand.workspace = true
+
+[build-dependencies]
+spirv-builder.workspace = true
+
+[lints]
+workspace = true
