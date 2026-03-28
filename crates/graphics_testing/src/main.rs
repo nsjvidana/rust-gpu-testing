@@ -1,4 +1,9 @@
+pub mod shader;
+pub mod error;
+mod prelude;
+
 use std::num::NonZeroU64;
+use wgpu::{BufferUsages, CommandEncoderDescriptor};
 use wgpu::util::DeviceExt;
 
 fn main() {
@@ -12,26 +17,53 @@ fn main() {
     let float_values = std::iter::repeat_with(|| rand::random_range(-100f32..100.0))
         .take(64)
         .collect::<Vec<f32>>();
-    let buffers = make_buffers(&device, bytemuck::cast_slice(float_values.as_slice()));
+    // let buffers = make_buffers(&device, bytemuck::cast_slice(float_values.as_slice()));
 
-    let (shader_module, pipeline, bind_group) = make_compute_pipeline::<f32>(
+    let buf = shader::ComputeBuffer::create_init(
         &device,
-        SHADER,
-        &buffers,
+        bytemuck::cast_slice(&float_values),
+        BufferUsages::STORAGE,
+        false,
+        true
     );
+    let mut shader = shader::ComputeShader::new(&device, SHADER);
+    shader
+        .bind_buffer_sequential(&device, &buf);
 
-    let workgroup_count = float_values.len().div_ceil(64);
-    let output_slice = run_shader(
+    let workgroup_count = float_values.len().div_ceil(64) as u32;
+    let submission_idx = shader.run_shader(
         &device,
         &queue,
-        &pipeline,
-        &bind_group,
-        &buffers,
-        workgroup_count as u32
-    );
-    let output: &[f32] = bytemuck::cast_slice(&output_slice);
+        [workgroup_count, 1, 1],
+        true
+    ).unwrap();
+    device.poll(wgpu::PollType::Wait {
+        submission_index: Some(submission_idx),
+        timeout: None
+    }).unwrap();
 
+    let output_slice = buf.read_slice().unwrap();
+    let output: &[f32] = bytemuck::cast_slice(&output_slice);
     println!("before:{float_values:?} \nafter: {output:?}");
+
+    // let (shader_module, pipeline, bind_group) = make_compute_pipeline::<f32>(
+    //     &device,
+    //     SHADER,
+    //     &buffers,
+    // );
+    //
+    // let workgroup_count = float_values.len().div_ceil(64);
+    // let output_slice = run_shader(
+    //     &device,
+    //     &queue,
+    //     &pipeline,
+    //     &bind_group,
+    //     &buffers,
+    //     workgroup_count as u32
+    // );
+    // let output: &[f32] = bytemuck::cast_slice(&output_slice);
+
+    // println!("before:{float_values:?} \nafter: {output:?}");
 }
 
 async fn get_adapter_device_queue(

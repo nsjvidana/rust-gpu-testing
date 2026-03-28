@@ -15,7 +15,9 @@ unexpected_cfgs = { level = "allow", check-cfg = ['cfg(target_arch, values("spir
 wgpu = { version = "29.0.1", default-features = false, features = ["std", "parking_lot", "vulkan", "vulkan-portability", "spirv", "wgsl"] }
 pollster = "0.4.0"
 bytemuck = "1.25.0"
+hashbrown = "0.16.0"
 rand = "0.10.0"
+thiserror = "2.0.18"
 
 # rust-gpu
 spirv-builder = { git = "https://github.com/Rust-GPU/rust-gpu", rev = "30896871ba00e668029ccb724f1438202b284708" }

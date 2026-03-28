@@ -502,9 +502,11 @@ name = "graphics_testing"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "hashbrown 0.16.1",
  "pollster",
  "rand",
  "spirv-builder",
+ "thiserror",
  "wgpu",
 ]
 

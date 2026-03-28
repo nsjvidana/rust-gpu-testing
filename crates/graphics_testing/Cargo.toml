@@ -8,6 +8,8 @@ wgpu.workspace = true
 pollster.workspace = true
 bytemuck.workspace = true
 rand.workspace = true
+thiserror.workspace = true
+hashbrown.workspace = true
 
 [build-dependencies]
 spirv-builder.workspace = true
