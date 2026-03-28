@@ -1,5 +1,3 @@
-extern crate core;
-
 use std::num::NonZeroU64;
 use wgpu::util::DeviceExt;
 
@@ -153,20 +151,22 @@ fn run_shader(
         buffers.data_buf.size(),
     );
 
+    encoder.map_buffer_on_submit(
+        &buffers.download_buf,
+        wgpu::MapMode::Read,
+        ..,
+        |_| {}
+    );
+
     let cmd_buf = encoder.finish();
     queue.submit([cmd_buf]);
-
-    let buffer_slice = buffers.download_buf.slice(..);
-    buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
-
     device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
 
-    let data = buffer_slice.get_mapped_range();
+    let data = buffers.download_buf.get_mapped_range(..);
     data
 }
 
 struct ComputeBuffers {
     pub data_buf: wgpu::Buffer,
-    // pub output_buf: wgpu::Buffer,
     pub download_buf: wgpu::Buffer,
 }
