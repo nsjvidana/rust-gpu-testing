@@ -6,5 +6,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
     let spv_path = compile_result.module.unwrap_single();
     println!("cargo::rustc-env=shader_crate.spv={}", spv_path.display());
+    println!("cargo:rerun-if-changed=../shader_crate/");
     Ok(())
 }

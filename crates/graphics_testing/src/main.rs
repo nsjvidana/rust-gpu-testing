@@ -11,10 +11,10 @@ fn main() {
     // Create wgpu objects
     let (adapter, device, queue) = pollster::block_on(get_adapter_device_queue(&instance));
 
-    let float_values = std::iter::repeat_with(|| rand::random_range(-100.0..100.0))
+    let float_values = std::iter::repeat_with(|| rand::random_range(-100f32..100.0))
         .take(64)
-        .collect::<Vec<_>>();
-    let buffers = make_buffers(&device, bytemuck::cast_slice(&float_values));
+        .collect::<Vec<f32>>();
+    let buffers = make_buffers(&device, bytemuck::cast_slice(float_values.as_slice()));
 
     let (shader_module, pipeline, bind_group) = make_compute_pipeline::<f32>(
         &device,
@@ -61,13 +61,7 @@ fn make_buffers(device: &wgpu::Device, compute_data: &[u8]) -> ComputeBuffers {
     let input_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("compute data buf"),
         contents: compute_data,
-        usage: wgpu::BufferUsages::STORAGE,
-    });
-    let output_buf = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("compute data output buf"),
-        size: input_buf.size(),
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-        mapped_at_creation: false,
     });
     let download_buf = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("float values download buf"),
@@ -77,8 +71,8 @@ fn make_buffers(device: &wgpu::Device, compute_data: &[u8]) -> ComputeBuffers {
     });
 
     ComputeBuffers {
-        input_buf,
-        output_buf,
+        data_buf: input_buf,
+        // output_buf,
         download_buf,
     }
 }
@@ -97,22 +91,12 @@ fn make_compute_pipeline<Data>(
                 binding: 0,
                 visibility:  wgpu::ShaderStages::COMPUTE,
                 ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: false,
-                    min_binding_size: Some(NonZeroU64::new(4).unwrap())
-                },
-                count: None
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 1,
-                visibility:  wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Storage { read_only: false },
                     has_dynamic_offset: false,
                     min_binding_size: Some(NonZeroU64::new(4).unwrap())
                 },
                 count: None
-            }
+            },
         ]
     });
     let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -121,11 +105,7 @@ fn make_compute_pipeline<Data>(
         entries: &[
             wgpu::BindGroupEntry {
                 binding: 0,
-                resource: buffers.input_buf.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: buffers.output_buf.as_entire_binding(),
+                resource: buffers.data_buf.as_entire_binding(),
             },
         ]
     });
@@ -139,7 +119,7 @@ fn make_compute_pipeline<Data>(
         label: None,
         layout: Some(&pipeline_layout),
         module: &module,
-        entry_point: Some("main_cs"),
+        entry_point: Some("double_me"),
         compilation_options: wgpu::PipelineCompilationOptions::default(),
         cache: None
     });
@@ -166,11 +146,11 @@ fn run_shader(
     drop(compute_pass);
 
     encoder.copy_buffer_to_buffer(
-        &buffers.output_buf,
+        &buffers.data_buf,
         0,
         &buffers.download_buf,
         0,
-        buffers.output_buf.size(),
+        buffers.data_buf.size(),
     );
 
     let cmd_buf = encoder.finish();
@@ -186,7 +166,7 @@ fn run_shader(
 }
 
 struct ComputeBuffers {
-    pub input_buf: wgpu::Buffer,
-    pub output_buf: wgpu::Buffer,
+    pub data_buf: wgpu::Buffer,
+    // pub output_buf: wgpu::Buffer,
     pub download_buf: wgpu::Buffer,
 }
