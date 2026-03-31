@@ -1,7 +1,8 @@
 [workspace]
-members = ["crates/graphics_testing"
-
-, "crates/shader_crate"]
+members = [
+    "crates/graphics_testing",
+    "crates/shader_crate"
+]
 resolver = "3"
 
 [workspace.package]
