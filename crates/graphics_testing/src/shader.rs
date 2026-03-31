@@ -91,7 +91,7 @@ impl ComputeShader {
         device: &Device,
         queue: &Queue,
         workgroup_count: [u32; 3],
-        map_buffers_for_reading: bool
+        download_buffers: bool
     ) -> Result<SubmissionIndex> {
         let mut encoder =
             device.create_command_encoder(&CommandEncoderDescriptor { label: None });
@@ -99,7 +99,7 @@ impl ComputeShader {
             device,
             &mut encoder,
             workgroup_count,
-            map_buffers_for_reading
+            download_buffers
         )?;
         let cmd_buf = encoder.finish();
         Ok(queue.submit([cmd_buf]))
@@ -107,14 +107,14 @@ impl ComputeShader {
 
     /// Encode commands in a [`CommandEncoder`] with commands for running the shader.
     ///
-    /// Optionally include commands for mapping all downloadable buffers for reading
-    /// by setting `map_buffers_for_reading` to `true`.
+    /// Optionally include commands for downloading and mapping all downloadable buffers for reading
+    /// by setting `download_buffers` to `true`.
     pub fn encode_run_commands(
         &mut self,
         device: &Device,
         encoder: &mut CommandEncoder,
         workgroup_count: [u32; 3],
-        map_buffers_for_reading: bool
+        download_buffers: bool
     ) -> Result<()> {
         if self.inner.is_none() {
             self.generate_pipeline(device)?;
@@ -131,12 +131,12 @@ impl ComputeShader {
         drop(compute_pass);
 
         // download bufs
-        for bg in self.bind_groups.iter() {
-            let Some(bg) = bg else { continue; };
-            for buf in bg.iter() {
-                let Some(buf) = buf else { continue; };
-                buf.encode_download_command(encoder)?;
-                if map_buffers_for_reading{
+        if download_buffers {
+            for bg in self.bind_groups.iter() {
+                let Some(bg) = bg else { continue; };
+                for buf in bg.iter() {
+                    let Some(buf) = buf else { continue; };
+                    buf.encode_download_command(encoder)?;
                     buf.encode_map_read(encoder)?;
                 }
             }
