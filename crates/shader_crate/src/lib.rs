@@ -1,6 +1,7 @@
 #![no_std]
 
-use spirv_std::glam::{UVec3, UVec4, Vec3, Vec3Swizzles, Vec4, Vec4Swizzles};
+use bytemuck::{Pod, Zeroable};
+use spirv_std::glam::{UVec3, Vec3, Vec3Swizzles, Vec4};
 use spirv_std::spirv;
 use spirv_std::num_traits::Float;
 
@@ -11,10 +12,10 @@ const COULOMB_K: f32 = 8.98755178597214e9;
 #[spirv(compute(threads(4, 4, 4)))]
 pub fn e_field_compute(
     #[spirv(global_invocation_id)] id: UVec3,
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 0)] e_field: &mut [Vec4], // Vec4 for 16-byte alignment
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 0)] e_field: &mut [Vec4],
     // TODO: magnetic field (b_field)
     #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] pt_charges: &mut [PointCharge],
-    #[spirv(uniform, descriptor_set = 0, binding = 2)] grid: &GridValues,
+    #[spirv(uniform, descriptor_set = 0, binding = 2)] grid: &GridInfo,
 ) {
     if id.cmpge(grid.grid_dimensions.xyz()).any() {
         return;
@@ -24,35 +25,37 @@ pub fn e_field_compute(
     let flat_idx = (id.z * grid.grid_dimensions.x * grid.grid_dimensions.y +
               id.y * grid.grid_dimensions.x +
               id.x) as usize;
-    let cell_position = grid.position + Vec4::from((id.as_vec3(), 0.)) * grid.cell_size;
+    let cell_position = grid.position + id.as_vec3() * grid.cell_size;
     for i in 0..pt_charges.len() {
         let pt = &pt_charges[i];
         let r = cell_position - pt.position;
         let r_magnitude_sq = r.length_squared();
         let r_hat =
-            if r_magnitude_sq != 0. { r / r_magnitude_sq.sqrt() } else { Vec4::ZERO };
+            if r_magnitude_sq != 0. { r / r_magnitude_sq.sqrt() } else { Vec3::ZERO };
         let e = (COULOMB_K * pt.q / r_magnitude_sq) * r_hat;
-        e_field[flat_idx] += Vec4::new(e.x, e.y, e.z, 0.);
+        e_field[flat_idx] += Vec4::from((e, 0.));
     }
 }
 
-#[derive(Clone)]
+#[derive(Copy, Clone, Pod, Zeroable)]
 #[repr(C)]
 pub struct PointCharge {
     /// The charge of the point charge (unit: Coulomb)
     pub q: f32,
+    _padding: [u32; 3],
+    /// The position of the charge (unit: m)
+    pub position: Vec3,
     /// Mass of this point charge (unit: kg)
     pub mass: f32,
-    /// The position of the charge (unit: m)
-    pub position: Vec4,
 }
 
-#[derive(Clone)]
+#[derive(Copy, Clone, Pod, Zeroable)]
 #[repr(C)]
-pub struct GridValues {
+pub struct GridInfo {
     /// Position of the grid's origin cell (the "0,0" cell. NOT the cell at the center)
-    pub position: Vec4,
-    pub grid_dimensions: UVec4,
+    pub position: Vec3,
+    _padding: u32,
+    pub grid_dimensions: UVec3,
     /// The length of one dimension of the grid's cell
     pub cell_size: f32,
 }

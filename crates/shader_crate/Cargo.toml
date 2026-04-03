@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 spirv-std.workspace = true
+bytemuck.workspace = true
 
 [lints]
 workspace = true
