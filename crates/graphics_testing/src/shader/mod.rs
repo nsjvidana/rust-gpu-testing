@@ -121,8 +121,8 @@ impl ComputeShader {
         workgroup_count: [u32; 3],
         download_buffers: bool
     ) -> Result<()> {
-        if self.inner.is_none() {
-            self.generate_pipeline(device, entry_point)?;
+        if !self.is_initialized() {
+            self.generate_pipeline(device, entry_point, false)?;
         }
         let inner = self.inner.as_ref().unwrap();
 
@@ -154,8 +154,17 @@ impl ComputeShader {
         self.inner.as_ref().is_some_and(|v| v.pipeline.is_some())
     }
 
-    fn generate_pipeline(&mut self, device: &Device, entry_point: Option<&str>) -> Result<()> {
-        self.generate_bind_groups(device)?;
+    /// Initializes the shader.
+    pub fn initialize(&mut self, device: &Device, entry_point: Option<&str>, force: bool) -> Result<()> {
+        self.generate_pipeline(device, entry_point, force)
+    }
+
+    /// Generates the underlying [`wgpu::BindGroup`]s, [`wgpu::ComputePipeline`], and their layouts.
+    ///
+    /// The `force` parameter recreates and overwrites ALL underlying [`wgpu::BindGroup`]s, [`wgpu::ComputePipeline`],
+    ///     and their layouts ([`wgpu::Buffer`] are not destroyed).
+    pub fn generate_pipeline(&mut self, device: &Device, entry_point: Option<&str>, force: bool) -> Result<()> {
+        self.generate_bind_groups(device, force)?;
         let inner = self.inner.as_mut().unwrap();
 
         let bg_layouts_refs = inner.bind_group_layouts.iter()
@@ -180,14 +189,18 @@ impl ComputeShader {
         Ok(())
     }
 
-    fn generate_bind_groups(&mut self, device: &Device) -> Result<()> {
-        if let Some(bg_id) = self.bind_groups.iter()
-            .position(|bg| bg.as_ref().is_some_and(|v| v.contains(&None)))
-        {
-            return Err(Error::UndefinedBindings {
-                shader_name: self.name.clone(),
-                bind_group_id: bg_id as _
-            })
+    /// Generates the underlying [`wgpu::BindGroup`]s and their layouts.
+    ///
+    /// The `force` parameter deletes ALL underlying [`wgpu::BindGroup`]s, [`wgpu::ComputePipeline`], and their layouts,
+    ///     and recreates [`wgpu::BindGroup`]s and their layouts ([`wgpu::Buffer`]s are not destroyed).
+    pub fn generate_bind_groups(&mut self, device: &Device, force: bool) -> Result<()> {
+        if force {
+            self.inner = None;
+        }
+
+        // Return if bind groups are already initialized.
+        if self.inner.as_ref().is_some_and(|v| v.bind_groups.len() != 0) {
+            return Ok(());
         }
 
         let bg_layouts = self.bind_groups.iter()
@@ -196,13 +209,13 @@ impl ComputeShader {
                     return None
                 };
                 let entries = bg.iter()
-                    .map(|v| v.as_ref().unwrap())
                     .enumerate()
+                    .filter(|(_, b)| b.is_some())
                     .map(|(binding, buf)| wgpu::BindGroupLayoutEntry {
                         binding: binding as _,
                         visibility: ShaderStages::COMPUTE,
                         ty: BindingType::Buffer {
-                            ty: buf.binding_type,
+                            ty: buf.as_ref().unwrap().binding_type,
                             has_dynamic_offset: false,
                             min_binding_size: None
                         },
@@ -225,11 +238,11 @@ impl ComputeShader {
                 let bg = bg.as_ref().unwrap();
                 let entries = bg.iter()
                     .enumerate()
-                    .map(|v| (v.0 as u32, v.1.as_ref().unwrap()))
+                    .filter(|(_, b)| b.is_some())
                     .map(|(binding, buf)| {
                         wgpu::BindGroupEntry {
-                            binding,
-                            resource: buf.buf.as_entire_binding(),
+                            binding: binding as u32,
+                            resource: buf.as_ref().unwrap().buf.as_entire_binding(),
                         }
                     })
                     .collect::<Vec<_>>();
