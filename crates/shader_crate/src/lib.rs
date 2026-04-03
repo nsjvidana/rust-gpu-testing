@@ -36,6 +36,8 @@ pub fn e_field_compute(
     }
 }
 
+#[derive(Clone)]
+#[repr(C)]
 pub struct PointCharge {
     /// The charge of the point charge (unit: Coulomb)
     pub q: f32,
@@ -45,6 +47,8 @@ pub struct PointCharge {
     pub position: Vec4,
 }
 
+#[derive(Clone)]
+#[repr(C)]
 pub struct GridValues {
     /// Position of the grid's origin cell (the "0,0" cell. NOT the cell at the center)
     pub position: Vec4,

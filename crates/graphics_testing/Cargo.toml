@@ -4,7 +4,9 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+shader_crate = {path = "../shader_crate/"}
 wgpu.workspace = true
+glam.workspace = true
 pollster.workspace = true
 bytemuck.workspace = true
 rand.workspace = true
