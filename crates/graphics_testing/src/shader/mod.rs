@@ -150,6 +150,10 @@ impl ComputeShader {
         Ok(())
     }
 
+    pub fn is_initialized(&self) -> bool {
+        self.inner.as_ref().is_some_and(|v| v.pipeline.is_some())
+    }
+
     fn generate_pipeline(&mut self, device: &Device, entry_point: Option<&str>) -> Result<()> {
         self.generate_bind_groups(device)?;
         let inner = self.inner.as_mut().unwrap();
@@ -177,11 +181,6 @@ impl ComputeShader {
     }
 
     fn generate_bind_groups(&mut self, device: &Device) -> Result<()> {
-        // if self.bind_groups.contains(&None) {
-        //     return Err(Error::UndefinedBindGroups {
-        //         shader_name: self.name.clone()
-        //     })
-        // };
         if let Some(bg_id) = self.bind_groups.iter()
             .position(|bg| bg.as_ref().is_some_and(|v| v.contains(&None)))
         {
