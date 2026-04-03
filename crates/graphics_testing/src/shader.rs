@@ -90,6 +90,7 @@ impl ComputeShader {
         &mut self,
         device: &Device,
         queue: &Queue,
+        entry_point: Option<&str>,
         workgroup_count: [u32; 3],
         download_buffers: bool
     ) -> Result<SubmissionIndex> {
@@ -98,6 +99,7 @@ impl ComputeShader {
         self.encode_run_commands(
             device,
             &mut encoder,
+            entry_point,
             workgroup_count,
             download_buffers
         )?;
@@ -113,11 +115,12 @@ impl ComputeShader {
         &mut self,
         device: &Device,
         encoder: &mut CommandEncoder,
+        entry_point: Option<&str>,
         workgroup_count: [u32; 3],
         download_buffers: bool
     ) -> Result<()> {
         if self.inner.is_none() {
-            self.generate_pipeline(device)?;
+            self.generate_pipeline(device, entry_point)?;
         }
         let inner = self.inner.as_ref().unwrap();
 
@@ -145,7 +148,7 @@ impl ComputeShader {
         Ok(())
     }
 
-    fn generate_pipeline(&mut self, device: &Device) -> Result<()> {
+    fn generate_pipeline(&mut self, device: &Device, entry_point: Option<&str>) -> Result<()> {
         self.generate_bind_groups(device)?;
         let inner = self.inner.as_mut().unwrap();
 
@@ -161,7 +164,7 @@ impl ComputeShader {
             label: None,
             layout: Some(&pipeline_layout),
             module: &self.module,
-            entry_point: Some("double_me"),
+            entry_point: entry_point,
             compilation_options: wgpu::PipelineCompilationOptions::default(),
             cache: None
         });

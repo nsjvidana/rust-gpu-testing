@@ -32,6 +32,7 @@ fn main() {
     let submission_idx = shader.run_shader(
         &device,
         &queue,
+        Some("double_me"),
         [workgroup_count, 1, 1],
         true
     ).unwrap();
