@@ -1,3 +1,5 @@
+mod maxwell_eqs;
+
 use wgpu::{BindingType, Buffer, BufferAddress, BufferBindingType, BufferDescriptor, BufferUsages, BufferView, CommandEncoder, CommandEncoderDescriptor, Device, Limits, Queue, ShaderModule, ShaderModuleDescriptor, ShaderStages, SubmissionIndex};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use crate::prelude::*;
