@@ -2,47 +2,28 @@ pub mod shader;
 pub mod error;
 mod prelude;
 
-use wgpu::{BufferUsages};
-use wgpu::util::DeviceExt;
+use crate::shader::double_me::DoubleMe;
 
 fn main() {
-    const SHADER: wgpu::ShaderModuleDescriptor = wgpu::include_spirv!(env!("shader_crate.spv"));
-
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
 
     // Create wgpu objects
-    let (adapter, device, queue) = pollster::block_on(get_adapter_device_queue(&instance));
+    let (_adapter, device, queue) = pollster::block_on(get_adapter_device_queue(&instance));
 
     let float_values = std::iter::repeat_with(|| rand::random_range(-100f32..100.0))
         .take(64)
         .collect::<Vec<f32>>();
 
-    let buf = shader::ComputeBuffer::create_init(
-        &device,
-        bytemuck::cast_slice(&float_values),
-        BufferUsages::STORAGE,
-        false,
-        true
-    );
-    let mut shader = shader::ComputeShader::new(&device, SHADER);
-    shader
-        .bind_buffer_sequential(&device, &buf);
-
-    let workgroup_count = float_values.len().div_ceil(64) as u32;
-    let submission_idx = shader.run_shader(
-        &device,
-        &queue,
-        Some("double_me"),
-        [workgroup_count, 1, 1],
-        true
-    ).unwrap();
+    let mut double_me = DoubleMe::new(&device);
+    double_me.initialize(&device, float_values.as_slice(), false).unwrap();
     device.poll(wgpu::PollType::Wait {
-        submission_index: Some(submission_idx),
+        submission_index: Some(
+            double_me.run(&device, &queue, float_values.len() as _).unwrap()
+        ),
         timeout: None
     }).unwrap();
+    let output = double_me.read_buf().unwrap();
 
-    let output_slice = buf.read_slice().unwrap();
-    let output: &[f32] = bytemuck::cast_slice(&output_slice);
     println!("before:{float_values:?} \nafter: {output:?}");
 }
 

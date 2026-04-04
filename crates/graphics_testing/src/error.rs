@@ -1,5 +1,7 @@
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
+    #[error("The shader is uninitialized. Maybe you tried reading its output while it was uninitialized.")]
+    ShaderIsUninitialized,
     #[error("Buffer size cannot be zero")]
     BufferSizeZero,
     #[error("InvalidBinding: group {bind_group_id}, binding {binding}\n max bindings {max_bindings}, max bind groups {max_bind_groups}")]

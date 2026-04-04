@@ -1,4 +1,5 @@
-mod maxwell_eqs;
+pub mod maxwell_eqs;
+pub mod double_me;
 
 use wgpu::{BindingType, Buffer, BufferAddress, BufferBindingType, BufferDescriptor, BufferUsages, BufferView, CommandEncoder, CommandEncoderDescriptor, Device, Limits, Queue, ShaderModule, ShaderModuleDescriptor, ShaderStages, SubmissionIndex};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
