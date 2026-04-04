@@ -3,12 +3,13 @@ use crate::shader::{ComputeBuffer, ComputeShader};
 use glam::Vec4;
 use shader_crate::{GridInfo, PointCharge};
 use std::borrow::Cow;
-use wgpu::Device;
+use wgpu::{Device, Queue, SubmissionIndex};
 
 pub const PROTON_MASS: f32 = 1.6726219259552e-27;
 pub const ELECTRON_MASS: f32 = 9.109383713928e-31;
 pub const ELEMENTARY_CHARGE: f32 = 1.602176634e-19;
 
+/// Interface for interacting with the Maxwell's Equations shader.
 pub struct MaxwellEqsCompute {
     /// The underlying compute shader.
     shader: ComputeShader,
@@ -16,14 +17,14 @@ pub struct MaxwellEqsCompute {
 }
 
 impl MaxwellEqsCompute {
-
+    pub const ENTRY_POINT: Option<&'static str> = Some("e_field_compute");
     /// Creates an uninitialized [`MaxwellEqsCompute`] shader.
     pub fn new(device: &Device) -> Result<Self> {
         let wgpu::ShaderSource::SpirV(spirv) = &super::SHADER.source else {
             unreachable!()
         };
         let shader = ComputeShader::new(device, wgpu::ShaderModuleDescriptor {
-            label: Some("e_field_compute"),
+            label: Self::ENTRY_POINT,
             source: wgpu::ShaderSource::SpirV(Cow::Borrowed(spirv))
         });
         Ok(Self {
@@ -37,7 +38,7 @@ impl MaxwellEqsCompute {
     ///
     /// You can call this whenever you want, but preferably you call it only once just before running
     /// the shader for the first time. TODO: Use the write functions to edit the buffers
-    pub fn initialize(&mut self, device: &Device, data: &MaxwellEqsData) -> Result<()> {
+    pub fn initialize(&mut self, device: &Device, data: &MaxwellEqsData, grid_info: &GridInfo) -> Result<()> {
         let e_field_buf = ComputeBuffer::create_init(
             device,
             bytemuck::cast_slice(data.e_field.as_slice()),
@@ -55,7 +56,7 @@ impl MaxwellEqsCompute {
         );
         let grid_info_buf = ComputeBuffer::create_init(
             device,
-            bytemuck::bytes_of(&data.grid_info),
+            bytemuck::bytes_of(grid_info),
             wgpu::BufferUsages::UNIFORM,
             true,
             true
@@ -64,8 +65,34 @@ impl MaxwellEqsCompute {
             .bind_buffer_sequential(device, &e_field_buf)
             .bind_buffer_sequential(device, &pt_charges_buf)
             .bind_buffer_sequential(device, &grid_info_buf);
-        self.shader.initialize(device, Some("e_field_compute"), true)?;
+        self.buffers = Some(MaxwellEqsBuffers {
+            e_field_buf,
+            pt_charges_buf,
+            grid_info_buf,
+        });
+        self.shader.initialize(device, Self::ENTRY_POINT, true)?;
         Ok(())
+    }
+
+    pub fn run(&mut self, device: &Device, queue: &Queue, grid_info: &GridInfo) -> Result<SubmissionIndex> {
+        let workgroup_count = grid_info.grid_dimensions.map(|v| v.div_ceil(4))
+            .to_array();
+        self.shader.run_shader(device, queue, Self::ENTRY_POINT, workgroup_count, true)
+    }
+
+    pub fn read_buffers(&self) -> Result<MaxwellEqsData> {
+        let Some(buffers) = &self.buffers else {
+            return Err(Error::ShaderIsUninitialized)
+        };
+
+        let e_field_view = buffers.e_field_buf.read_slice()?;
+        let pt_charges_view = buffers.pt_charges_buf.read_slice()?;
+        let e_field: Vec<Vec4> = bytemuck::cast_slice(&e_field_view).to_vec();
+        let point_charges: Vec<PointCharge> = bytemuck::cast_slice(&pt_charges_view).to_vec();
+        Ok(MaxwellEqsData {
+            e_field,
+            point_charges,
+        })
     }
 }
 
@@ -73,7 +100,6 @@ pub struct MaxwellEqsData {
     pub e_field: Vec<Vec4>,
     // TODO: pub b_field: Vec<Vec4>,
     pub point_charges: Vec<PointCharge>,
-    pub grid_info: GridInfo,
 }
 
 impl MaxwellEqsData {
@@ -86,7 +112,6 @@ impl MaxwellEqsData {
             e_field: vec![Vec4::ZERO; num_cells as usize],
             // TODO: b_field: vec![Vec4::ZERO; num_cells as usize],
             point_charges,
-            grid_info
         })
     }
 }
@@ -95,4 +120,5 @@ pub struct MaxwellEqsBuffers {
     pub e_field_buf: ComputeBuffer,
     // TODO: pub b_field_buf: ComputeBuffer,
     pub pt_charges_buf: ComputeBuffer,
+    pub grid_info_buf: ComputeBuffer,
 }
