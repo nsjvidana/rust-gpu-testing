@@ -1,25 +1,20 @@
-use std::borrow::Cow;
-use bytemuck::{Pod, Zeroable};
-use glam::{UVec4, Vec3, Vec4};
-use wgpu::Device;
-use shader_crate::{GridInfo, PointCharge};
-use crate::shader::{ComputeBuffer, ComputeShader};
 use crate::prelude::*;
+use crate::shader::{ComputeBuffer, ComputeShader};
+use glam::Vec4;
+use shader_crate::GridInfo;
+use std::borrow::Cow;
+use wgpu::Device;
 
 pub struct MaxwellEqsCompute {
     /// The underlying compute shader.
     shader: ComputeShader,
-    pub point_charges: Vec<PointCharge>,
-    // TODO: don't store this data here. let the user pass it in when they need to.
-    pub grid_data: GridData,
-    pub grid_info: GridInfo,
     buffers: Option<MaxwellEqsBuffers>,
 }
 
 impl MaxwellEqsCompute {
 
     /// Creates an uninitialized [`MaxwellEqsCompute`] shader.
-    pub fn new(device: &Device, grid_info: GridInfo) -> Result<Self> {
+    pub fn new(device: &Device) -> Result<Self> {
         let wgpu::ShaderSource::SpirV(spirv) = &super::SHADER.source else {
             unreachable!()
         };
@@ -27,30 +22,21 @@ impl MaxwellEqsCompute {
             label: Some("e_field_compute"),
             source: wgpu::ShaderSource::SpirV(Cow::Borrowed(spirv))
         });
-
-        let num_cells = grid_info.grid_dimensions.element_product() as usize;
-        if num_cells == 0 { return Err(Error::BufferSizeZero) };
-        let grid_data = GridData {
-            e_field: vec![Vec4::ZERO; num_cells],
-        };
         Ok(Self {
             shader,
-            point_charges: Vec::new(),
-            grid_data,
-            grid_info,
             buffers: None,
         })
     }
 
     /// Initializes the shader for running. Call this after setting the inputs to the shader
     /// (`grid_data`, `grid_info`, and `point_charges`).
-    pub fn initialize(&mut self, device: &Device) -> Result<()> {
-        if self.shader.is_initialized() && self.buffers.is_some() {
-            return Ok(());
-        }
+    ///
+    /// You can call this whenever you want, but preferably you call it only once just before running
+    /// the shader for the first time. TODO: Use the write functions to edit the buffers
+    pub fn initialize(&mut self, device: &Device, data: &MaxwellEqsData) -> Result<()> {
         let e_field_buf = ComputeBuffer::create_init(
             device,
-            bytemuck::cast_slice(self.grid_data.e_field.as_slice()),
+            bytemuck::cast_slice(data.e_field.as_slice()),
             wgpu::BufferUsages::STORAGE,
             false,
             true
@@ -58,14 +44,14 @@ impl MaxwellEqsCompute {
         // TODO: let _b_field_buf = ;
         let pt_charges_buf = ComputeBuffer::create_init(
             device,
-            bytemuck::cast_slice(self.point_charges.as_slice()),
+            bytemuck::cast_slice(data.point_charges.as_slice()),
             wgpu::BufferUsages::STORAGE,
             false,
             true
         );
         let grid_info_buf = ComputeBuffer::create_init(
             device,
-            bytemuck::bytes_of(&self.grid_info),
+            bytemuck::bytes_of(&data.grid_info),
             wgpu::BufferUsages::UNIFORM,
             true,
             true
@@ -77,17 +63,19 @@ impl MaxwellEqsCompute {
         self.shader.initialize(device, Some("e_field_compute"), true)?;
         Ok(())
     }
+
+
+}
+
+pub struct MaxwellEqsData {
+    pub e_field: Vec<Vec4>,
+    // TODO: pub b_field: Vec<Vec4>,
+    pub point_charges: Vec<Vec4>,
+    pub grid_info: GridInfo,
 }
 
 pub struct MaxwellEqsBuffers {
     pub e_field_buf: ComputeBuffer,
     // TODO: pub b_field_buf: ComputeBuffer,
     pub pt_charges_buf: ComputeBuffer,
-}
-
-#[derive(Default)]
-pub struct GridData {
-    /// Electric field
-    pub e_field: Vec<Vec4>,
-    // TODO: magnetic field
 }
