@@ -37,7 +37,7 @@ pub fn e_field_compute(
     }
 }
 
-#[derive(Copy, Clone, Pod, Zeroable)]
+#[derive(Copy, Clone, Pod, Zeroable, Default)]
 #[repr(C)]
 pub struct PointCharge {
     /// The charge of the point charge (unit: Coulomb)
@@ -49,7 +49,22 @@ pub struct PointCharge {
     pub mass: f32,
 }
 
-#[derive(Copy, Clone, Pod, Zeroable)]
+impl PointCharge {
+    pub fn new(
+        q: f32,
+        position: Vec3,
+        mass: f32,
+    ) -> Self {
+        Self {
+            q,
+            position,
+            mass,
+            ..Default::default()
+        }
+    }
+}
+
+#[derive(Copy, Clone, Pod, Zeroable, Default)]
 #[repr(C)]
 pub struct GridInfo {
     /// Position of the grid's origin cell (the "0,0" cell. NOT the cell at the center)
@@ -58,6 +73,21 @@ pub struct GridInfo {
     pub grid_dimensions: UVec3,
     /// The length of one dimension of the grid's cell
     pub cell_size: f32,
+}
+
+impl GridInfo {
+    pub fn new(
+        position: Vec3,
+        grid_dimensions: UVec3,
+        cell_size: f32,
+    ) -> Self {
+        Self {
+            position,
+            grid_dimensions,
+            cell_size,
+            ..Default::default()
+        }
+    }
 }
 
 #[spirv(compute(threads(64)))]

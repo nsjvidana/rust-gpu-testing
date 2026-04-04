@@ -1,9 +1,13 @@
 use crate::prelude::*;
 use crate::shader::{ComputeBuffer, ComputeShader};
 use glam::Vec4;
-use shader_crate::GridInfo;
+use shader_crate::{GridInfo, PointCharge};
 use std::borrow::Cow;
 use wgpu::Device;
+
+pub const PROTON_MASS: f32 = 1.6726219259552e-27;
+pub const ELECTRON_MASS: f32 = 9.109383713928e-31;
+pub const ELEMENTARY_CHARGE: f32 = 1.602176634e-19;
 
 pub struct MaxwellEqsCompute {
     /// The underlying compute shader.
@@ -63,15 +67,28 @@ impl MaxwellEqsCompute {
         self.shader.initialize(device, Some("e_field_compute"), true)?;
         Ok(())
     }
-
-
 }
 
 pub struct MaxwellEqsData {
     pub e_field: Vec<Vec4>,
     // TODO: pub b_field: Vec<Vec4>,
-    pub point_charges: Vec<Vec4>,
+    pub point_charges: Vec<PointCharge>,
     pub grid_info: GridInfo,
+}
+
+impl MaxwellEqsData {
+    pub fn new(grid_info: GridInfo, point_charges: Vec<PointCharge>) -> Result<Self> {
+        let num_cells = grid_info.grid_dimensions.element_product();
+        if num_cells == 0 {
+            return Err(Error::BufferSizeZero)
+        }
+        Ok(Self {
+            e_field: vec![Vec4::ZERO; num_cells as usize],
+            // TODO: b_field: vec![Vec4::ZERO; num_cells as usize],
+            point_charges,
+            grid_info
+        })
+    }
 }
 
 pub struct MaxwellEqsBuffers {
