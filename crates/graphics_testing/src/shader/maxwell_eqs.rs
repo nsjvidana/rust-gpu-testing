@@ -10,6 +10,7 @@ pub struct MaxwellEqsCompute {
     /// The underlying compute shader.
     shader: ComputeShader,
     pub point_charges: Vec<PointCharge>,
+    // TODO: don't store this data here. let the user pass it in when they need to.
     pub grid_data: GridData,
     pub grid_info: GridInfo,
     buffers: Option<MaxwellEqsBuffers>,

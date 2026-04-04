@@ -383,3 +383,16 @@ impl ComputeBuffer {
         }
     }
 }
+
+/// Utility function for waiting on work submitted to the GPU to finish.
+///
+/// This function blocks the thread that calls it.
+pub fn wait(
+    device: &Device,
+    submission: SubmissionIndex
+) -> core::result::Result<wgpu::PollStatus, wgpu::PollError> {
+    device.poll(wgpu::PollType::Wait {
+        submission_index: Some(submission),
+        timeout: None,
+    })
+}

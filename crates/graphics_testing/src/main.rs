@@ -16,12 +16,8 @@ fn main() {
 
     let mut double_me = DoubleMe::new(&device);
     double_me.initialize(&device, float_values.as_slice(), false).unwrap();
-    device.poll(wgpu::PollType::Wait {
-        submission_index: Some(
-            double_me.run(&device, &queue, float_values.len() as _).unwrap()
-        ),
-        timeout: None
-    }).unwrap();
+    let submission = double_me.run(&device, &queue, float_values.len() as _).unwrap();
+    shader::wait(&device, submission).unwrap();
     let output = double_me.read_buf().unwrap();
 
     println!("before:{float_values:?} \nafter: {output:?}");
