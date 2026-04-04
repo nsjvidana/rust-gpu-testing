@@ -6,8 +6,6 @@ use shader_crate::{GridInfo, PointCharge};
 use crate::shader::{ComputeBuffer, ComputeShader};
 use crate::prelude::*;
 
-const SHADER: wgpu::ShaderModuleDescriptor = wgpu::include_spirv!(env!("shader_crate.spv"));
-
 pub struct MaxwellEqsCompute {
     /// The underlying compute shader.
     shader: ComputeShader,
@@ -21,7 +19,7 @@ impl MaxwellEqsCompute {
 
     /// Creates an uninitialized [`MaxwellEqsCompute`] shader.
     pub fn new(device: &Device, grid_info: GridInfo) -> Result<Self> {
-        let wgpu::ShaderSource::SpirV(spirv) = &SHADER.source else {
+        let wgpu::ShaderSource::SpirV(spirv) = &super::SHADER.source else {
             unreachable!()
         };
         let shader = ComputeShader::new(device, wgpu::ShaderModuleDescriptor {

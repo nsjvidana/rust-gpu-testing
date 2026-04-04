@@ -7,6 +7,8 @@ use crate::prelude::*;
 /// A bind group for buffer bindings
 pub type ComputeBindGroup = Vec<Option<ComputeBuffer>>;
 
+pub const SHADER: wgpu::ShaderModuleDescriptor = wgpu::include_spirv!(env!("shader_crate.spv"));
+
 pub struct ComputeShader {
     pub name: String,
     pub module: ShaderModule,
@@ -371,5 +373,12 @@ impl ComputeBuffer {
 
     pub fn get_download_buf(&self) -> Result<&Buffer> {
         self.download_buf.as_ref().ok_or(Error::BufferCannotBeDownloaded)
+    }
+
+    pub fn destroy(mut self) {
+        self.buf.destroy();
+        if let Some(b) = self.download_buf.take() {
+            b.destroy();
+        }
     }
 }
