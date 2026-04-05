@@ -24,15 +24,16 @@ async fn main() {
         let particle_mass = if charge_bool { PROTON_MASS } else { ELECTRON_MASS };
         let particle_count = rng.random_range(1..5) as f32;
         let charge_sign = if charge_bool { 1. } else { -1. };
-        PointCharge::new(
-            ELEMENTARY_CHARGE * particle_count * charge_sign,
-            Vec3::new(
+        PointCharge {
+            q: ELEMENTARY_CHARGE * particle_count * charge_sign,
+            position: Vec3::new(
                 rng.random_range(0.1..7.),
                 rng.random_range(0.1..7.),
                 rng.random_range(0.1..7.)
             ),
-            particle_mass * particle_count,
-        )
+            mass: particle_mass * particle_count,
+            ..Default::default()
+        }
     }).take(5).collect::<Vec<_>>();
     let input_data = MaxwellEqsData::new(grid_info, point_charges).unwrap();
     let mut shader = MaxwellEqsCompute::new(&device).unwrap();

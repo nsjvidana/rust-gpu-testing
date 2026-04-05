@@ -40,28 +40,13 @@ pub fn e_field_compute(
 #[derive(Copy, Clone, Pod, Zeroable, Default)]
 #[repr(C)]
 pub struct PointCharge {
+    pub velocity: Vec3,
     /// The charge of the point charge (unit: Coulomb)
     pub q: f32,
-    _padding: [u32; 3],
     /// The position of the charge (unit: m)
     pub position: Vec3,
     /// Mass of this point charge (unit: kg)
     pub mass: f32,
-}
-
-impl PointCharge {
-    pub fn new(
-        q: f32,
-        position: Vec3,
-        mass: f32,
-    ) -> Self {
-        Self {
-            q,
-            position,
-            mass,
-            ..Default::default()
-        }
-    }
 }
 
 #[derive(Copy, Clone, Pod, Zeroable, Default)]
