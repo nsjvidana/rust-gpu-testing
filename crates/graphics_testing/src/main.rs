@@ -55,11 +55,11 @@ async fn main() {
     // Draw data
     let bb_extents = grid_info.grid_dimensions.as_vec3() * grid_info.cell_size;
     let bb_poly_line = bb_polyline(bb_extents, grid_info.position);
-    let arrows = output_data.e_field.iter()
+    let arrows = output_data.cells.iter()
         .enumerate()
-        .map(|(i, v)| {
+        .map(|(i, cell)| {
             let i = i as u32;
-            let v = Vec3::new(v.x, v.y, v.z).normalize() * grid_info.cell_size / 2.;
+            let v = cell.e.normalize() * grid_info.cell_size / 2.;
             let cell_position = flat_idx_to_vector(i, grid_info.grid_dimensions)
                 .as_vec3() * grid_info.cell_size;
             arrow_polyline(cell_position, v)

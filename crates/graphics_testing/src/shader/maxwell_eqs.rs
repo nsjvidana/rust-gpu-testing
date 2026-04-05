@@ -1,7 +1,7 @@
 use crate::prelude::*;
 use crate::shader::{ComputeBuffer, ComputeShader};
 use glam::Vec4;
-use shader_crate::{GridInfo, PointCharge};
+use shader_crate::{GridCell, GridInfo, PointCharge};
 use std::borrow::Cow;
 use wgpu::{Device, Queue, SubmissionIndex};
 
@@ -39,14 +39,13 @@ impl MaxwellEqsCompute {
     /// You can call this whenever you want, but preferably you call it only once just before running
     /// the shader for the first time. TODO: Use the write functions to edit the buffers
     pub fn initialize(&mut self, device: &Device, data: &MaxwellEqsData, grid_info: &GridInfo) -> Result<()> {
-        let e_field_buf = ComputeBuffer::create_init(
+        let cells_buf = ComputeBuffer::create_init(
             device,
-            bytemuck::cast_slice(data.e_field.as_slice()),
+            bytemuck::cast_slice(data.cells.as_slice()),
             wgpu::BufferUsages::STORAGE,
             false,
             true
         );
-        // TODO: let _b_field_buf = ;
         let pt_charges_buf = ComputeBuffer::create_init(
             device,
             bytemuck::cast_slice(data.point_charges.as_slice()),
@@ -62,11 +61,11 @@ impl MaxwellEqsCompute {
             true
         );
         self.shader
-            .bind_buffer_sequential(device, &e_field_buf)
+            .bind_buffer_sequential(device, &cells_buf)
             .bind_buffer_sequential(device, &pt_charges_buf)
             .bind_buffer_sequential(device, &grid_info_buf);
         self.buffers = Some(MaxwellEqsBuffers {
-            e_field_buf,
+            cells_buf,
             pt_charges_buf,
             grid_info_buf,
         });
@@ -85,20 +84,19 @@ impl MaxwellEqsCompute {
             return Err(Error::ShaderIsUninitialized)
         };
 
-        let e_field_view = buffers.e_field_buf.read_slice()?;
+        let cells_view = buffers.cells_buf.read_slice()?;
         let pt_charges_view = buffers.pt_charges_buf.read_slice()?;
-        let e_field: Vec<Vec4> = bytemuck::cast_slice(&e_field_view).to_vec();
+        let cells: Vec<GridCell> = bytemuck::cast_slice(&cells_view).to_vec();
         let point_charges: Vec<PointCharge> = bytemuck::cast_slice(&pt_charges_view).to_vec();
         Ok(MaxwellEqsData {
-            e_field,
+            cells,
             point_charges,
         })
     }
 }
 
 pub struct MaxwellEqsData {
-    pub e_field: Vec<Vec4>,
-    // TODO: pub b_field: Vec<Vec4>,
+    pub cells: Vec<GridCell>,
     pub point_charges: Vec<PointCharge>,
 }
 
@@ -109,16 +107,14 @@ impl MaxwellEqsData {
             return Err(Error::BufferSizeZero)
         }
         Ok(Self {
-            e_field: vec![Vec4::ZERO; num_cells as usize],
-            // TODO: b_field: vec![Vec4::ZERO; num_cells as usize],
+            cells: vec![GridCell::default(); num_cells as usize],
             point_charges,
         })
     }
 }
 
 pub struct MaxwellEqsBuffers {
-    pub e_field_buf: ComputeBuffer,
-    // TODO: pub b_field_buf: ComputeBuffer,
+    pub cells_buf: ComputeBuffer,
     pub pt_charges_buf: ComputeBuffer,
     pub grid_info_buf: ComputeBuffer,
 }

@@ -1,9 +1,9 @@
 #![no_std]
 
 use bytemuck::{Pod, Zeroable};
-use spirv_std::glam::{UVec3, Vec3, Vec3Swizzles, Vec4};
-use spirv_std::spirv;
+use spirv_std::glam::{UVec3, Vec3, Vec3Swizzles};
 use spirv_std::num_traits::Float;
+use spirv_std::spirv;
 
 /// The Coulomb constant 1/(4πε_0)
 const COULOMB_K: f32 = 8.98755178597214e9;
@@ -12,7 +12,7 @@ const COULOMB_K: f32 = 8.98755178597214e9;
 #[spirv(compute(threads(4, 4, 4)))]
 pub fn e_field_compute(
     #[spirv(global_invocation_id)] id: UVec3,
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 0)] e_field: &mut [Vec4],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 0)] cells: &mut [GridCell],
     // TODO: magnetic field (b_field)
     #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] pt_charges: &mut [PointCharge],
     #[spirv(uniform, descriptor_set = 0, binding = 2)] grid: &GridInfo,
@@ -32,9 +32,19 @@ pub fn e_field_compute(
         let r_magnitude_sq = r.length_squared();
         let r_hat =
             if r_magnitude_sq != 0. { r / r_magnitude_sq.sqrt() } else { Vec3::ZERO };
-        let e = (COULOMB_K * pt.q / r_magnitude_sq) * r_hat;
-        e_field[flat_idx] += Vec4::from((e, 0.));
+        cells[flat_idx].e += (COULOMB_K * pt.q / r_magnitude_sq) * r_hat;
     }
+}
+
+#[derive(Copy, Clone, Pod, Zeroable, Default)]
+#[repr(C)]
+pub struct GridCell {
+    /// Electric field vector
+    pub e: Vec3,
+    _padding0: u32,
+    /// The magnetic field vector at a grid position offset by half the cell size.
+    pub b: Vec3,
+    _padding1: u32,
 }
 
 #[derive(Copy, Clone, Pod, Zeroable, Default)]
