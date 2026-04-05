@@ -1,12 +1,14 @@
 pub mod shader;
 pub mod error;
 mod prelude;
+mod util;
 
 use glam::{USizeVec3, UVec3, Vec3};
 use kiss3d::prelude::*;
 use rand::{RngExt, SeedableRng};
 use shader_crate::{GridInfo, PointCharge};
 use crate::shader::maxwell_eqs::{MaxwellEqsCompute, MaxwellEqsData, ELECTRON_MASS, ELEMENTARY_CHARGE, PROTON_MASS};
+use crate::util::{arrow_polyline, bb_polyline, flat_idx_to_vector};
 
 #[kiss3d::main]
 async fn main() {
@@ -50,49 +52,16 @@ async fn main() {
     scene.add_light(Light::point(100.))
         .set_position(Vec3::new(10., 10., 10.));
     // Draw data
-    let grid_dim = grid_info.grid_dimensions;
-    let bb_poly_line = {
-        let bb_extents = grid_dim.as_vec3() * grid_info.cell_size;
-        let grid_pos = grid_info.position;
-        let v0 = grid_pos;
-        let v0x = grid_pos + Vec3::new(bb_extents.x, 0., 0.);
-        let v0xy = grid_pos + Vec3::new(bb_extents.x, bb_extents.y, 0.);
-        let v0y = grid_pos + Vec3::new(0., bb_extents.y, 0.);
-        let v1 = v0 + Vec3::new(0., 0., bb_extents.z);
-        let v1x = v0x + Vec3::new(0., 0., bb_extents.z);
-        let v1xy = v0xy + Vec3::new(0., 0., bb_extents.z);
-        let v1y = v0y + Vec3::new(0., 0., bb_extents.z);
-        Polyline3d::new(vec![
-            v0, v0x, v0xy, v0y, v0,
-            v1, v1x, v1xy, v1y, v1,
-            v1x, v0x, v0xy, v1xy,
-            v1y, v0y
-        ]).with_color(WHITE)
-    };
+    let bb_extents = grid_info.grid_dimensions.as_vec3() * grid_info.cell_size;
+    let bb_poly_line = bb_polyline(bb_extents, grid_info.position);
     let arrows = output_data.e_field.iter()
         .enumerate()
         .map(|(i, v)| {
             let i = i as u32;
             let v = Vec3::new(v.x, v.y, v.z).normalize() * grid_info.cell_size / 2.;
-            let cell_position = UVec3::new(
-                i % grid_dim.x,
-                (i / grid_dim.x) % grid_dim.y,
-                i / (grid_dim.x * grid_dim.y),
-            ).as_vec3() * grid_info.cell_size;
-
-            let u = -v;
-            let mut axis = u.cross(Vec3::X).normalize_or_zero();
-                if axis.length_squared() == 0. {
-                    axis = u.cross(Vec3::Y).normalize();
-                }
-            let arrow_head = u.rotate_axis(axis, -std::f32::consts::FRAC_PI_4)
-                .normalize() * grid_info.cell_size / 6.;
-
-            Polyline3d::new(vec![
-                cell_position,
-                cell_position + v,
-                cell_position + v + arrow_head
-            ])
+            let cell_position = flat_idx_to_vector(i, grid_info.grid_dimensions)
+                .as_vec3() * grid_info.cell_size;
+            arrow_polyline(cell_position, v)
         }).collect::<Vec<_>>();
     for pt in output_data.point_charges.iter().map(|v| v.position) {
         scene.add_sphere(0.2)
