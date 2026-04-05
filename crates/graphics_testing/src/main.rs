@@ -2,13 +2,14 @@ pub mod shader;
 pub mod error;
 mod prelude;
 
-use glam::{UVec3, Vec3};
+use glam::{USizeVec3, UVec3, Vec3};
+use kiss3d::prelude::*;
 use rand::{RngExt, SeedableRng};
 use shader_crate::{GridInfo, PointCharge};
-use crate::shader::double_me::DoubleMe;
 use crate::shader::maxwell_eqs::{MaxwellEqsCompute, MaxwellEqsData, ELECTRON_MASS, ELEMENTARY_CHARGE, PROTON_MASS};
 
-fn main() {
+#[kiss3d::main]
+async fn main() {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
 
     // Create wgpu objects
@@ -43,8 +44,66 @@ fn main() {
 
     let output_data = shader.read_buffers().unwrap();
 
-    println!("E field before: {:?}", input_data.e_field);
-    println!("E field after: {:?}", output_data.e_field);
+    let mut window = Window::new("Compute Shader Testing").await;
+    let mut camera = OrbitCamera3d::default();
+    let mut scene = SceneNode3d::empty();
+    scene.add_light(Light::point(100.))
+        .set_position(Vec3::new(10., 10., 10.));
+    // Draw data
+    let grid_dim = grid_info.grid_dimensions;
+    let bb_poly_line = {
+        let bb_extents = grid_dim.as_vec3() * grid_info.cell_size;
+        let grid_pos = grid_info.position;
+        let v0 = grid_pos;
+        let v0x = grid_pos + Vec3::new(bb_extents.x, 0., 0.);
+        let v0xy = grid_pos + Vec3::new(bb_extents.x, bb_extents.y, 0.);
+        let v0y = grid_pos + Vec3::new(0., bb_extents.y, 0.);
+        let v1 = v0 + Vec3::new(0., 0., bb_extents.z);
+        let v1x = v0x + Vec3::new(0., 0., bb_extents.z);
+        let v1xy = v0xy + Vec3::new(0., 0., bb_extents.z);
+        let v1y = v0y + Vec3::new(0., 0., bb_extents.z);
+        Polyline3d::new(vec![
+            v0, v0x, v0xy, v0y, v0,
+            v1, v1x, v1xy, v1y, v1,
+            v1x, v0x, v0xy, v1xy,
+            v1y, v0y
+        ]).with_color(WHITE)
+    };
+    let arrows = output_data.e_field.iter()
+        .enumerate()
+        .map(|(i, v)| {
+            let i = i as u32;
+            let v = Vec3::new(v.x, v.y, v.z).normalize() * grid_info.cell_size / 2.;
+            let cell_position = UVec3::new(
+                i % grid_dim.x,
+                (i / grid_dim.x) % grid_dim.y,
+                i / (grid_dim.x * grid_dim.y),
+            ).as_vec3() * grid_info.cell_size;
+
+            let u = -v;
+            let mut axis = u.cross(Vec3::X).normalize_or_zero();
+                if axis.length_squared() == 0. {
+                    axis = u.cross(Vec3::Y).normalize();
+                }
+            let arrow_head = u.rotate_axis(axis, -std::f32::consts::FRAC_PI_4)
+                .normalize() * grid_info.cell_size / 6.;
+
+            Polyline3d::new(vec![
+                cell_position,
+                cell_position + v,
+                cell_position + v + arrow_head
+            ])
+        }).collect::<Vec<_>>();
+    for pt in output_data.point_charges.iter().map(|v| v.position) {
+        scene.add_sphere(0.2)
+            .set_position(pt)
+            .set_color(RED);
+    }
+    // Render the window
+    while window.render_3d(&mut scene, &mut camera).await {
+        window.draw_polyline(&bb_poly_line);
+        arrows.iter().for_each(|a| window.draw_polyline(a))
+    }
 }
 
 async fn get_adapter_device_queue(

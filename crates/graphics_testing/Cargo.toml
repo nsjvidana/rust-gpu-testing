@@ -4,7 +4,8 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-shader_crate = {path = "../shader_crate/"}
+shader_crate = { path = "../shader_crate/" }
+kiss3d.workspace = true
 wgpu.workspace = true
 glam.workspace = true
 pollster.workspace = true

@@ -13,6 +13,7 @@ edition = "2024"
 unexpected_cfgs = { level = "allow", check-cfg = ['cfg(target_arch, values("spirv"))'] }
 
 [workspace.dependencies]
+kiss3d = "0.41.0"
 wgpu = { version = "29.0.1", default-features = false, features = ["std", "parking_lot", "vulkan", "vulkan-portability", "spirv", "wgsl"] }
 glam = { version = "*", features = ["bytemuck"] }
 pollster = "0.4.0"
