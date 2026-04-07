@@ -3,15 +3,15 @@ pub mod error;
 mod prelude;
 mod util;
 
-use glam::{USizeVec3, UVec3, Vec3};
+use crate::shader::fdtd::{FDTDData, ELECTRON_MASS, ELEMENTARY_CHARGE, PROTON_MASS};
+use crate::util::{arrow_polyline, bb_polyline, flat_idx_to_vector};
+use glam::{UVec3, Vec3};
 use include_dir::{include_dir, Dir};
-use khal::backend::{Backend, DispatchGrid, Encoder, GpuBackend, GpuBackendError, WebGpu};
-use khal::{BufferUsages, Shader};
+use khal::backend::{Backend, Encoder, GpuBackend, GpuBackendError, WebGpu};
+use khal::Shader;
 use kiss3d::prelude::*;
 use rand::{RngExt, SeedableRng};
 use shader_crate::{EFieldCompute, GridInfo, PointCharge};
-use crate::shader::maxwell_eqs::{MaxwellEqsBuffers, MaxwellEqsData, ELECTRON_MASS, ELEMENTARY_CHARGE, PROTON_MASS};
-use crate::util::{arrow_polyline, bb_polyline, flat_idx_to_vector};
 
 static SPIRV_DIR: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/shaders-spirv");
 
@@ -39,7 +39,7 @@ async fn main() {
             ..Default::default()
         }
     }).take(5).collect::<Vec<_>>();
-    let input_data = MaxwellEqsData::new(grid_info, point_charges).unwrap();
+    let input_data = FDTDData::new(grid_info).unwrap();
 
     let output_data = compute_e_field(&backend, &input_data).await
         .unwrap();
@@ -53,14 +53,14 @@ pub struct GpuKernels {
 
 pub async fn compute_e_field(
     backend: &GpuBackend,
-    input_data: &MaxwellEqsData,
-) -> Result<MaxwellEqsData, GpuBackendError> {
-    let mut buffers = shader::maxwell_eqs::create_buffers(backend, input_data)?;
+    input_data: &FDTDData,
+) -> Result<FDTDData, GpuBackendError> {
+    let mut buffers = shader::fdtd::create_buffers(backend, input_data)?;
 
     let kernels = GpuKernels::from_backend(&backend).unwrap();
     let mut encoder = backend.begin_encoding();
     let mut pass = encoder.begin_pass("e_field_compute", None);
-    shader::maxwell_eqs::encode_e_field_compute(
+    shader::fdtd::encode_e_field_compute(
         &kernels.e_field_compute,
         &mut pass,
         &mut buffers,
@@ -73,15 +73,16 @@ pub async fn compute_e_field(
     let point_charges = backend.slow_read_vec(&buffers.point_charges).await?;
 
     Ok(
-        MaxwellEqsData {
+        FDTDData {
             cells,
+            material_constants: input_data.material_constants.clone(),
             point_charges,
             grid_info: input_data.grid_info,
         }
     )
 }
 
-pub async fn render_result(output_data: MaxwellEqsData) {
+pub async fn render_result(output_data: FDTDData) {
     let grid_info = &output_data.grid_info;
     let mut window = Window::new("Compute Shader Testing").await;
     let mut camera = OrbitCamera3d::default();

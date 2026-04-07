@@ -1,2 +1,2 @@
-pub mod maxwell_eqs;
+pub mod fdtd;
 pub mod double_me;

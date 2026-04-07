@@ -1,60 +1,63 @@
+use crate::prelude::*;
 use khal::backend::{Backend, DispatchGrid, GpuBackend, GpuBackendError, GpuBuffer, GpuPass};
 use khal::BufferUsages;
-use crate::prelude::*;
-use shader_crate::{EFieldCompute, GridCell, GridInfo, PointCharge};
+use shader_crate::{EFieldCompute, GridCell, GridInfo, MaterialConstants, PointCharge};
 
 pub const PROTON_MASS: f32 = 1.6726219259552e-27;
 pub const ELECTRON_MASS: f32 = 9.109383713928e-31;
 pub const ELEMENTARY_CHARGE: f32 = 1.602176634e-19;
 
-pub struct MaxwellEqsData {
+pub struct FDTDData {
     pub cells: Vec<GridCell>,
+    pub material_constants: Vec<MaterialConstants>,
     pub grid_info: GridInfo,
     pub point_charges: Vec<PointCharge>,
 }
 
-impl MaxwellEqsData {
-    pub fn new(grid_info: GridInfo, point_charges: Vec<PointCharge>) -> Result<Self> {
+impl FDTDData {
+    pub fn new(grid_info: GridInfo) -> Result<Self> {
         let num_cells = grid_info.grid_dimensions.element_product();
         if num_cells == 0 {
             return Err(Error::BufferSizeZero)
         }
         Ok(Self {
             cells: vec![GridCell::default(); num_cells as usize],
+            material_constants: vec![MaterialConstants::default()],
             grid_info,
-            point_charges,
+            point_charges: Vec::new(),
         })
     }
 }
 
 pub struct MaxwellEqsBuffers {
     pub cells: GpuBuffer<GridCell>,
+    pub material_constants: GpuBuffer<MaterialConstants>,
     pub point_charges: GpuBuffer<PointCharge>,
     pub grid_info: GpuBuffer<GridInfo>,
 }
 
 pub fn create_buffers(
     backend: &GpuBackend,
-    data: &MaxwellEqsData
+    data: &FDTDData
 ) -> std::result::Result<MaxwellEqsBuffers, GpuBackendError> {
-    let cells = backend.init_buffer(
-        data.cells.as_slice(),
-        BufferUsages::STORAGE | BufferUsages::COPY_SRC
-    )?;
-    let pt_charges = backend.init_buffer(
-        data.point_charges.as_slice(),
-        BufferUsages::STORAGE | BufferUsages::COPY_SRC
-    )?;
-    let grid_info = backend.init_buffer(
-        &[data.grid_info],
-        BufferUsages::STORAGE
-    )?;
-
     Ok(
         MaxwellEqsBuffers {
-            cells,
-            point_charges: pt_charges,
-            grid_info
+            cells: backend.init_buffer(
+                data.cells.as_slice(),
+                BufferUsages::STORAGE | BufferUsages::COPY_SRC
+            )?,
+            material_constants: backend.init_buffer(
+                data.material_constants.as_slice(),
+                BufferUsages::STORAGE
+            )?,
+            point_charges: backend.init_buffer(
+                data.point_charges.as_slice(),
+                BufferUsages::STORAGE | BufferUsages::COPY_SRC
+            )?,
+            grid_info: backend.init_buffer(
+                &[data.grid_info],
+                BufferUsages::STORAGE
+            )?
         }
     )
 }
@@ -71,6 +74,7 @@ pub fn encode_e_field_compute(
         DispatchGrid::Grid(workgroup_count),
         &mut buffers.cells,
         &mut buffers.point_charges,
-        &buffers.grid_info,
+        &buffers.material_constants,
+        &buffers.grid_info
     )
 }
