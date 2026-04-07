@@ -12,12 +12,12 @@ impl DoubleMe {
     const ENTRY_POINT: Option<&'static str> = Some("double_me");
 
     pub fn new(device: &wgpu::Device) -> Self {
-        let wgpu::ShaderSource::SpirV(spirv) = &super::SHADER.source else {
+        let wgpu::ShaderSource::SpirV(spirv) = todo!() else {
             unreachable!()
         };
         let shader = ComputeShader::new(device, wgpu::ShaderModuleDescriptor {
             label: Self::ENTRY_POINT,
-            source: wgpu::ShaderSource::SpirV(Cow::Borrowed(spirv))
+            source: wgpu::ShaderSource::SpirV(Cow::Borrowed(spirv.as_ref()))
         });
 
         Self {

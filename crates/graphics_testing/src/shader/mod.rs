@@ -8,7 +8,6 @@ use crate::prelude::*;
 /// A bind group for buffer bindings
 pub type ComputeBindGroup = Vec<Option<ComputeBuffer>>;
 
-pub const SHADER: wgpu::ShaderModuleDescriptor = wgpu::include_spirv!(env!("shader_crate.spv"));
 
 pub struct ComputeShader {
     pub name: String,

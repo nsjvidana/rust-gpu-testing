@@ -1,22 +1,24 @@
-#![no_std]
+#![cfg_attr(target_arch = "spirv", no_std)]
 
 use bytemuck::{Pod, Zeroable};
-use spirv_std::glam::{UVec3, Vec3, Vec3Swizzles};
-use spirv_std::num_traits::Float;
-use spirv_std::spirv;
+use khal_std::glamx::{UVec3, Vec3, Vec3Swizzles};
+use khal_std::macros::{spirv_bindgen, spirv};
+use khal_std::num_traits::Float;
 
 /// The Coulomb constant 1/(4πε_0)
 const COULOMB_K: f32 = 8.98755178597214e9;
 
 // TODO: replace spirv with cfg_attr(feature = "dim2/3", spirv(compute(threads(64, 64,)) etc.)
+#[spirv_bindgen]
 #[spirv(compute(threads(4, 4, 4)))]
 pub fn e_field_compute(
     #[spirv(global_invocation_id)] id: UVec3,
     #[spirv(storage_buffer, descriptor_set = 0, binding = 0)] cells: &mut [GridCell],
-    // TODO: magnetic field (b_field)
     #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] pt_charges: &mut [PointCharge],
-    #[spirv(uniform, descriptor_set = 0, binding = 2)] grid: &GridInfo,
+    // TODO: make this parameter into a uniform (khal doesn't support uniform buffers right now).
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] grid: &[GridInfo],
 ) {
+    let grid = &grid[0];
     if id.cmpge(grid.grid_dimensions.xyz()).any() {
         return;
     }

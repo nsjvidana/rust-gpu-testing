@@ -20,10 +20,12 @@ pollster = "0.4.0"
 bytemuck = { version = "*", features = ["derive"]}
 hashbrown = "0.16.0"
 rand = "0.10.0"
+include_dir = "*"
 thiserror = "2.0.18"
-# rust-gpu
-spirv-builder = { git = "https://github.com/Rust-GPU/rust-gpu", rev = "30896871ba00e668029ccb724f1438202b284708" }
-spirv-std = { git = "https://github.com/Rust-GPU/rust-gpu", rev = "30896871ba00e668029ccb724f1438202b284708", features = ["bytemuck"] }
+# khal
+khal = { git = "https://github.com/dimforge/khal.git", rev = "1dd6b842e9dc5a24ec25f1625ec1c1ef07f4cc1c", features = ["derive"] }
+khal-builder = { git = "https://github.com/dimforge/khal.git", rev = "1dd6b842e9dc5a24ec25f1625ec1c1ef07f4cc1c" }
+khal-std = { git = "https://github.com/dimforge/khal.git", rev = "1dd6b842e9dc5a24ec25f1625ec1c1ef07f4cc1c" }
 
 # Compile build-dependencies in release mode with
 # the same settings as regular dependencies.

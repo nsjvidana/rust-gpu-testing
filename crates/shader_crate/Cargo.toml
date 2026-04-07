@@ -4,8 +4,11 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-spirv-std.workspace = true
+khal-std.workspace = true
 bytemuck.workspace = true
+
+[target.'cfg(not(any(target_arch = "spirv", target_arch = "nvptx64")))'.dependencies]
+khal = { workspace = true, features = ["derive"] }
 
 [lints]
 workspace = true

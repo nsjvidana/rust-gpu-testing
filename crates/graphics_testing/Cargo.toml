@@ -5,17 +5,19 @@ edition.workspace = true
 
 [dependencies]
 shader_crate = { path = "../shader_crate/" }
+khal.workspace = true
 kiss3d.workspace = true
 wgpu.workspace = true
 glam.workspace = true
 pollster.workspace = true
 bytemuck.workspace = true
 rand.workspace = true
+include_dir.workspace = true
 thiserror.workspace = true
 hashbrown.workspace = true
 
 [build-dependencies]
-spirv-builder.workspace = true
+khal-builder.workspace = true
 
 [lints]
 workspace = true

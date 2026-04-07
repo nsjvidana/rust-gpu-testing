@@ -1,0 +1,12 @@
+[
+  {
+    "source_path": "../graphics_testing/shaders-spirv/double_me.spv",
+    "entry_point": "double_me",
+    "wgsl_entry_point": "double_me"
+  },
+  {
+    "source_path": "../graphics_testing/shaders-spirv/e_field_compute.spv",
+    "entry_point": "e_field_compute",
+    "wgsl_entry_point": "e_field_compute"
+  }
+]

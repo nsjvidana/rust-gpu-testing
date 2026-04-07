@@ -4,19 +4,23 @@ mod prelude;
 mod util;
 
 use glam::{USizeVec3, UVec3, Vec3};
+use include_dir::{include_dir, Dir};
+use khal::backend::{Backend, DispatchGrid, Encoder, GpuBackend, GpuBackendError, WebGpu};
+use khal::{BufferUsages, Shader};
 use kiss3d::prelude::*;
 use rand::{RngExt, SeedableRng};
-use shader_crate::{GridInfo, PointCharge};
-use crate::shader::maxwell_eqs::{MaxwellEqsCompute, MaxwellEqsData, ELECTRON_MASS, ELEMENTARY_CHARGE, PROTON_MASS};
+use shader_crate::{EFieldCompute, GridInfo, PointCharge};
+use crate::shader::maxwell_eqs::{MaxwellEqsBuffers, MaxwellEqsData, ELECTRON_MASS, ELEMENTARY_CHARGE, PROTON_MASS};
 use crate::util::{arrow_polyline, bb_polyline, flat_idx_to_vector};
+
+static SPIRV_DIR: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/shaders-spirv");
 
 #[kiss3d::main]
 async fn main() {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    let webgpu = WebGpu::default().await.unwrap();
+    let backend = GpuBackend::WebGpu(webgpu);
 
-    // Create wgpu objects
-    let (_adapter, device, queue) = pollster::block_on(get_adapter_device_queue(&instance));
-
+    // Generating input data for the shader
     let grid_info = GridInfo::new(Vec3::ZERO, UVec3::splat(8), 1., );
     let mut rng = rand::rngs::StdRng::seed_from_u64(1234567);
     let point_charges = std::iter::repeat_with(|| {
@@ -36,17 +40,49 @@ async fn main() {
         }
     }).take(5).collect::<Vec<_>>();
     let input_data = MaxwellEqsData::new(grid_info, point_charges).unwrap();
-    let mut shader = MaxwellEqsCompute::new(&device).unwrap();
-    shader.initialize(
-        &device,
-        &input_data,
-        &grid_info
-    ).unwrap();
-    let submission = shader.run(&device, &queue, &grid_info).unwrap();
-    shader::wait(&device, submission).unwrap();
 
-    let output_data = shader.read_buffers().unwrap();
+    let output_data = compute_e_field(&backend, &input_data).await
+        .unwrap();
+    render_result(output_data).await;
+}
 
+#[derive(Shader)]
+pub struct GpuKernels {
+    pub e_field_compute: EFieldCompute
+}
+
+pub async fn compute_e_field(
+    backend: &GpuBackend,
+    input_data: &MaxwellEqsData,
+) -> Result<MaxwellEqsData, GpuBackendError> {
+    let mut buffers = shader::maxwell_eqs::create_buffers(backend, input_data)?;
+
+    let kernels = GpuKernels::from_backend(&backend).unwrap();
+    let mut encoder = backend.begin_encoding();
+    let mut pass = encoder.begin_pass("e_field_compute", None);
+    shader::maxwell_eqs::encode_e_field_compute(
+        &kernels.e_field_compute,
+        &mut pass,
+        &mut buffers,
+        &input_data.grid_info
+    )?;
+    drop(pass);
+    backend.submit(encoder)?;
+
+    let cells = backend.slow_read_vec(&buffers.cells).await?;
+    let point_charges = backend.slow_read_vec(&buffers.point_charges).await?;
+
+    Ok(
+        MaxwellEqsData {
+            cells,
+            point_charges,
+            grid_info: input_data.grid_info,
+        }
+    )
+}
+
+pub async fn render_result(output_data: MaxwellEqsData) {
+    let grid_info = &output_data.grid_info;
     let mut window = Window::new("Compute Shader Testing").await;
     let mut camera = OrbitCamera3d::default();
     let mut scene = SceneNode3d::empty();
@@ -74,25 +110,4 @@ async fn main() {
         window.draw_polyline(&bb_poly_line);
         arrows.iter().for_each(|a| window.draw_polyline(a))
     }
-}
-
-async fn get_adapter_device_queue(
-    instance: &wgpu::Instance
-) -> (wgpu::Adapter, wgpu::Device, wgpu::Queue) {
-    let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions::default())
-        .await
-        .expect("Couldn't find a compatible graphics adapter on this computer");
-
-    if !adapter
-        .get_downlevel_capabilities()
-        .flags
-        .contains(wgpu::DownlevelFlags::COMPUTE_SHADERS) {
-        panic!("Graphics adapter doesn't support compute shaders")
-    }
-
-    let (device, queue) = adapter
-        .request_device(&wgpu::DeviceDescriptor::default())
-        .await
-        .expect("Couldn't find compatible graphics device on this computer");
-    (adapter, device, queue)
 }
