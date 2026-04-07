@@ -87,6 +87,7 @@ impl GridInfo {
     }
 }
 
+#[spirv_bindgen]
 #[spirv(compute(threads(64)))]
 pub fn double_me(
     #[spirv(global_invocation_id)] id: UVec3,
