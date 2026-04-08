@@ -1,2 +1,3 @@
 /target
 /.idea
+/crates/graphics_testing/shaders-spirv
