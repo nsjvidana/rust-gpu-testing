@@ -28,15 +28,14 @@ pub fn e_field_compute(
     let flat_idx = (id.z * grid.grid_dimensions.x * grid.grid_dimensions.y +
               id.y * grid.grid_dimensions.x +
               id.x) as usize;
-    let cell_position = grid.position + id.as_vec3() * grid.cell_size;
-    for i in 0..pt_charges.len() {
-        let pt = &pt_charges[i];
-        let r = cell_position - pt.position;
-        let r_magnitude_sq = r.length_squared();
-        let r_hat =
-            if r_magnitude_sq != 0. { r / r_magnitude_sq.sqrt() } else { Vec3::ZERO };
-        cells[flat_idx].e += (COULOMB_K * pt.q / r_magnitude_sq) * r_hat;
-    }
+}
+
+fn pt_charge_e_field(pt: &PointCharge, cell_position: Vec3) -> Vec3 {
+    let r = cell_position - pt.position;
+    let r_magnitude_sq = r.length_squared();
+    let r_hat =
+        if r_magnitude_sq != 0. { r / r_magnitude_sq.sqrt() } else { Vec3::ZERO };
+    (COULOMB_K * pt.q / r_magnitude_sq) * r_hat
 }
 
 #[derive(Copy, Clone, Pod, Zeroable, Default)]
@@ -80,6 +79,8 @@ impl MaterialConstants {
     const EPS_0: f32 = 8.854187818814e-12;
     /// Permeability of free space
     const MU_0: f32 = 1.2566370612720e-6;
+    /// Speed of light in free space
+    const C_0: f32 = 299792458.0;
 }
 
 impl Default for MaterialConstants {
