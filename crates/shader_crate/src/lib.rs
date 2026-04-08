@@ -1,9 +1,10 @@
 #![cfg_attr(target_arch = "spirv", no_std)]
 
 use bytemuck::{Pod, Zeroable};
-use khal_std::glamx::{Mat3, UVec3, Vec3, Vec3Swizzles};
+use khal_std::glamx::{Mat3, Mat3A, UVec3, Vec3, Vec3Swizzles};
 use khal_std::macros::{spirv, spirv_bindgen};
 use khal_std::num_traits::Float;
+use nalgebra::{Matrix3, Vector3};
 
 /// The Coulomb constant 1/(4πε_0)
 const COULOMB_K: f32 = 8.98755178597214e9;
@@ -61,37 +62,41 @@ pub struct GridCell {
 }
 
 /// Material constants for linear, isotropic, and non-dispersive materials ONLY.
-///
-/// TODO: The vectors here hold the values of the diagonals of the permittivity and
-///       permeability tensors only.
-#[derive(Copy, Clone, Pod, Zeroable)]
+#[derive(Copy, Clone, Pod, Zeroable, Debug)]
 #[repr(C)]
 pub struct MaterialConstants {
-    /// Permittivity of the material.
-    pub eps: f32,
-    /// Permeability of the material.
-    pub mu: f32,
-    pub _padding0: [u32; 2],
+    /// Update coefficient for the b-field solving stage
+    pub b_field_update_coeff_inv: Mat3,
+    /// Update coefficient for the e-field solving stage
+    pub e_field_update_coeff_inv: Mat3,
+    pub _padding: [u32; 2],
 }
 
 impl MaterialConstants {
     /// Permittivity of free space
-    const EPS_0: f32 = 8.854187818814e-12;
+    pub const EPS_0: f32 = 8.854187818814e-12;
     /// Permeability of free space
-    const MU_0: f32 = 1.2566370612720e-6;
+    pub const MU_0: f32 = 1.2566370612720e-6;
     /// Speed of light in free space
-    const C_0: f32 = 299792458.0;
+    pub const C_0: f32 = 299792458.0;
     /// Impedance of free space
-    const N_0: f32 = 376.73031346177;
-}
+    pub const N_0: f32 = 376.73031346177;
 
-impl Default for MaterialConstants {
-    /// Free space is default material.
-    fn default() -> Self {
+    /// Material constants of free space (vacuum)
+    pub fn free_space(dt: f32) -> Self {
+        Self::new_linear(Self::EPS_0, Self::MU_0, dt)
+    }
+
+    /// Creates material constants for a linear/isotropic/non-dispersive material
+    pub fn new_linear(eps: f32, mu: f32, dt: f32) -> Self {
         Self {
-            eps: Self::EPS_0,
-            mu: Self::MU_0,
-            _padding0: [0; 2],
+            e_field_update_coeff_inv: Matrix3::from_diagonal(
+                &Vector3::from_element(eps / (Self::C_0 * dt))
+            ).try_inverse().unwrap(),
+            b_field_update_coeff_inv: Matrix3::from_diagonal(
+                &Vector3::from_element(-mu / (Self::C_0 * dt))
+            ).try_inverse().unwrap(),
+            _padding: [0; 2]
         }
     }
 }
@@ -113,7 +118,7 @@ pub struct PointCharge {
 pub struct GridInfo {
     /// Position of the grid's origin cell (the "0,0" cell. NOT the cell at the center)
     pub position: Vec3,
-    _padding: u32,
+    pub dt: f32,
     pub grid_dimensions: UVec3,
     /// The length of one dimension of the grid's cell
     pub cell_size: f32,
@@ -124,12 +129,13 @@ impl GridInfo {
         position: Vec3,
         grid_dimensions: UVec3,
         cell_size: f32,
+        dt: f32
     ) -> Self {
         Self {
             position,
             grid_dimensions,
             cell_size,
-            ..Default::default()
+            dt
         }
     }
 }

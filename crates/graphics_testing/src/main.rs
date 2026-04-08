@@ -17,11 +17,14 @@ static SPIRV_DIR: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/shaders-spirv
 
 #[kiss3d::main]
 async fn main() {
+    let mat = shader_crate::MaterialConstants::free_space(1.0e-3);
+    println!("{:?}", mat);
+    return;
     let webgpu = WebGpu::default().await.unwrap();
     let backend = GpuBackend::WebGpu(webgpu);
 
     // Generating input data for the shader
-    let grid_info = GridInfo::new(Vec3::ZERO, UVec3::splat(8), 1., );
+    let grid_info = GridInfo::new(Vec3::ZERO, UVec3::splat(8), 1., 1.0e-3);
     let mut rng = rand::rngs::StdRng::seed_from_u64(1234567);
     let point_charges = std::iter::repeat_with(|| {
         let charge_bool = rng.random_bool(0.5);
