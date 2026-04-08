@@ -988,9 +988,7 @@ dependencies = [
 name = "graphics_testing"
 version = "0.1.0"
 dependencies = [
- "bytemuck",
  "glam",
- "hashbrown 0.16.1",
  "include_dir",
  "khal",
  "khal-builder",
@@ -999,7 +997,6 @@ dependencies = [
  "rand 0.10.0",
  "shader_crate",
  "thiserror 2.0.18",
- "wgpu",
 ]
 
 [[package]]

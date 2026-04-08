@@ -1,7 +1,7 @@
 #![cfg_attr(target_arch = "spirv", no_std)]
 
 use bytemuck::{Pod, Zeroable};
-use khal_std::glamx::{UVec3, Vec3, Vec3Swizzles};
+use khal_std::glamx::{Mat3, UVec3, Vec3, Vec3Swizzles};
 use khal_std::macros::{spirv, spirv_bindgen};
 use khal_std::num_traits::Float;
 
@@ -81,6 +81,8 @@ impl MaterialConstants {
     const MU_0: f32 = 1.2566370612720e-6;
     /// Speed of light in free space
     const C_0: f32 = 299792458.0;
+    /// Impedance of free space
+    const N_0: f32 = 376.73031346177;
 }
 
 impl Default for MaterialConstants {

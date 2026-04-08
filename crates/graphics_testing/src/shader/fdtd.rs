@@ -24,7 +24,7 @@ impl FDTDData {
             cells: vec![GridCell::default(); num_cells as usize],
             material_constants: vec![MaterialConstants::default()],
             grid_info,
-            point_charges: Vec::new(),
+            point_charges: vec![PointCharge::default()],
         })
     }
 }
