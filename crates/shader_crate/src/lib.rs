@@ -25,9 +25,7 @@ pub fn e_field_compute(
     }
 
     //Flat index of this invocation's grid cell
-    let flat_idx = (id.z * grid.grid_dimensions.x * grid.grid_dimensions.y +
-              id.y * grid.grid_dimensions.x +
-              id.x) as usize;
+    let idx = vector_to_flat_idx(id, grid.grid_dimensions) as usize;
 }
 
 fn pt_charge_e_field(pt: &PointCharge, cell_position: Vec3) -> Vec3 {
@@ -196,4 +194,18 @@ pub fn double_me(
 ) {
     let idx = id.x as usize;
     floats[idx] *= 2.0;
+}
+
+pub fn flat_idx_to_vector(idx: u32, grid_dim: UVec3) -> UVec3 {
+    UVec3::new(
+        idx % grid_dim.x,
+        (idx / grid_dim.x) % grid_dim.y,
+        idx / (grid_dim.x * grid_dim.y),
+    )
+}
+
+pub fn vector_to_flat_idx(v: UVec3, grid_dim: UVec3) -> u32 {
+    v.z * grid_dim.x * grid_dim.y +
+        v.y * grid_dim.x +
+        v.x
 }

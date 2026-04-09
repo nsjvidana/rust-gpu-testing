@@ -1,19 +1,6 @@
+pub use shader_crate::{flat_idx_to_vector, vector_to_flat_idx};
 use glam::{UVec3, Vec3};
 use kiss3d::prelude::Polyline3d;
-
-pub fn flat_idx_to_vector(idx: u32, grid_dim: UVec3) -> UVec3 {
-    UVec3::new(
-        idx % grid_dim.x,
-        (idx / grid_dim.x) % grid_dim.y,
-        idx / (grid_dim.x * grid_dim.y),
-    )
-}
-
-pub fn vector_to_flat_idx(v: UVec3, grid_dim: UVec3) -> u32 {
-    v.z * grid_dim.x * grid_dim.y +
-        v.y * grid_dim.x +
-        v.x
-}
 
 /// Constructs a [`kiss3d::prelude::Polyline3d`] that draws a bounding box with the extents `extents`
 /// and "origin vertex" at `position`
