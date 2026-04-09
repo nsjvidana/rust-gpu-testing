@@ -23,24 +23,7 @@ async fn main() {
     // Generating input data for the shader
     let grid_info = GridInfo::new(Vec3::ZERO, UVec3::splat(8), 1., 1.0e-3);
     let mut rng = rand::rngs::StdRng::seed_from_u64(1234567);
-    let point_charges = std::iter::repeat_with(|| {
-        let charge_bool = rng.random_bool(0.5);
-        let particle_mass = if charge_bool { PROTON_MASS } else { ELECTRON_MASS };
-        let particle_count = rng.random_range(1..5) as f32;
-        let charge_sign = if charge_bool { 1. } else { -1. };
-        PointCharge {
-            q: ELEMENTARY_CHARGE * particle_count * charge_sign,
-            position: Vec3::new(
-                rng.random_range(0.1..7.),
-                rng.random_range(0.1..7.),
-                rng.random_range(0.1..7.)
-            ),
-            mass: particle_mass * particle_count,
-            ..Default::default()
-        }
-    }).take(5).collect::<Vec<_>>();
     let input_data = FDTDData::new(grid_info).unwrap();
-
     let output_data = compute_e_field(&backend, &input_data).await
         .unwrap();
     render_result(output_data).await;
