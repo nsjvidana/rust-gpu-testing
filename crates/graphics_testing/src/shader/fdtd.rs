@@ -56,7 +56,7 @@ pub fn create_buffers(
             )?,
             grid_info: backend.init_buffer(
                 &[data.grid_info],
-                BufferUsages::STORAGE
+                BufferUsages::UNIFORM
             )?
         }
     )

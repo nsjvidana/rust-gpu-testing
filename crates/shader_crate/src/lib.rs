@@ -17,9 +17,8 @@ pub fn h_field_compute(
     #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] pt_charges: &mut [PointCharge],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] material: &[MaterialConstants],
     // TODO: make this parameter into a uniform (khal doesn't support uniform buffers right now).
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 3)] grid: &[GridInfo],
+    #[spirv(uniform, descriptor_set = 0, binding = 3)] grid: &GridInfo,
 ) {
-    let grid = &grid[0];
     if id.cmpge(grid.grid_dimensions).any() {
         return;
     }
