@@ -11,7 +11,7 @@ const COULOMB_K: f32 = 8.98755178597214e9;
 // TODO: replace spirv with cfg_attr(feature = "dim2/3", spirv(compute(threads(64, 64,)) etc.)
 #[spirv_bindgen]
 #[spirv(compute(threads(64)))]
-pub fn e_field_compute(
+pub fn h_field_compute(
     #[spirv(global_invocation_id)] id: UVec3,
     #[spirv(storage_buffer, descriptor_set = 0, binding = 0)] cells: &mut [GridCell],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] pt_charges: &mut [PointCharge],
@@ -20,12 +20,12 @@ pub fn e_field_compute(
     #[spirv(storage_buffer, descriptor_set = 0, binding = 3)] grid: &[GridInfo],
 ) {
     let grid = &grid[0];
-    if id.cmpge(grid.grid_dimensions.xyz()).any() {
+    if id.cmpge(grid.grid_dimensions).any() {
         return;
     }
 
-    //Flat index of this invocation's grid cell
-    let idx = vector_to_flat_idx(id, grid.grid_dimensions) as usize;
+    let idx = vector_to_flat_idx(id, grid.grid_dimensions) as usize; // Flat index of this invocation's grid cell
+    let is_boundary = id.cmpge(grid.grid_dimensions - UVec3::ONE);
 }
 
 fn pt_charge_e_field(pt: &PointCharge, cell_position: Vec3) -> Vec3 {

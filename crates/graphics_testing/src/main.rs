@@ -11,7 +11,7 @@ use khal::backend::{Backend, Encoder, GpuBackend, GpuBackendError, WebGpu};
 use khal::Shader;
 use kiss3d::prelude::*;
 use rand::{RngExt, SeedableRng};
-use shader_crate::{EFieldCompute, GridInfo, PointCharge};
+use shader_crate::{HFieldCompute, GridInfo, PointCharge};
 
 static SPIRV_DIR: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/shaders-spirv");
 
@@ -24,27 +24,27 @@ async fn main() {
     let grid_info = GridInfo::new(Vec3::ZERO, UVec3::splat(8), 1., GridInfo::DEFAULT_DT);
     let mut rng = rand::rngs::StdRng::seed_from_u64(1234567);
     let input_data = FDTDData::new(grid_info).unwrap();
-    let output_data = compute_e_field(&backend, &input_data).await
+    let output_data = compute_h_field(&backend, &input_data).await
         .unwrap();
     render_result(output_data).await;
 }
 
 #[derive(Shader)]
 pub struct GpuKernels {
-    pub e_field_compute: EFieldCompute
+    pub h_field_compute: HFieldCompute
 }
 
-pub async fn compute_e_field(
+pub async fn compute_h_field(
     backend: &GpuBackend,
     input_data: &FDTDData,
 ) -> Result<FDTDData, GpuBackendError> {
     let mut buffers = shader::fdtd::create_buffers(backend, input_data)?;
 
-    let kernels = GpuKernels::from_backend(&backend).unwrap();
+    let kernels = GpuKernels::from_backend(&backend)?;
     let mut encoder = backend.begin_encoding();
     let mut pass = encoder.begin_pass("e_field_compute", None);
-    shader::fdtd::encode_e_field_compute(
-        &kernels.e_field_compute,
+    shader::fdtd::encode_h_field_compute(
+        &kernels.h_field_compute,
         &mut pass,
         &mut buffers,
         &input_data.grid_info
