@@ -1,10 +1,9 @@
 #![cfg_attr(target_arch = "spirv", no_std)]
 
 use bytemuck::{Pod, Zeroable};
-use khal_std::glamx::{Mat3, Mat3A, UVec3, Vec3, Vec3Swizzles};
+use khal_std::glamx::{Mat3, Mat3A, MatExt, UVec3, Vec3, Vec3Swizzles};
 use khal_std::macros::{spirv, spirv_bindgen};
 use khal_std::num_traits::Float;
-use nalgebra::{Matrix3, Vector3};
 
 /// The Coulomb constant 1/(4πε_0)
 const COULOMB_K: f32 = 8.98755178597214e9;
@@ -67,9 +66,10 @@ pub struct GridCell {
 pub struct MaterialConstants {
     /// Update coefficient for the b-field solving stage
     pub b_field_update_coeff_inv: Mat3,
+    pub _padding0: u32,
     /// Update coefficient for the e-field solving stage
     pub e_field_update_coeff_inv: Mat3,
-    pub _padding: [u32; 2],
+    pub _padding1: u32,
 }
 
 impl MaterialConstants {
@@ -84,20 +84,46 @@ impl MaterialConstants {
 
     /// Material constants of free space (vacuum)
     pub fn free_space(dt: f32) -> Self {
-        Self::new_linear(Self::EPS_0, Self::MU_0, dt)
+        Self::new_linear(Self::EPS_0, Self::MU_0, dt).unwrap()
     }
 
     /// Creates material constants for a linear/isotropic/non-dispersive material
-    pub fn new_linear(eps: f32, mu: f32, dt: f32) -> Self {
-        Self {
-            e_field_update_coeff_inv: Matrix3::from_diagonal(
-                &Vector3::from_element(eps / (Self::C_0 * dt))
-            ).try_inverse().unwrap(),
-            b_field_update_coeff_inv: Matrix3::from_diagonal(
-                &Vector3::from_element(-mu / (Self::C_0 * dt))
-            ).try_inverse().unwrap(),
-            _padding: [0; 2]
+    pub fn new_linear(eps: f32, mu: f32, dt: f32) -> Option<Self> {
+        if eps == 0. || mu == 0. {
+            return None;
         }
+        Some(
+            Self {
+                b_field_update_coeff_inv: Mat3::from_diagonal(Vec3::splat(-Self::C_0*dt / mu )),
+                e_field_update_coeff_inv: Mat3::from_diagonal(Vec3::splat( Self::C_0*dt / eps)),
+                _padding0: 0,
+                _padding1: 1,
+            }
+        )
+    }
+
+    /// Creates material constants for an anisotropic material
+    ///
+    /// # Panics
+    /// When either `eps` or `mu` matrices are non-invertible
+    pub fn new_anisotropic(eps: Mat3, mu: Mat3, dt: f32) -> Option<Self> {
+        let Some((e_field_update_coeff_inv, b_field_update_coeff_inv)) = (eps / (Self::C_0 * dt))
+            .try_inverse()
+            .zip((-mu / (Self::C_0 * dt)).try_inverse()) else {return None };
+
+        Some(
+            Self {
+                b_field_update_coeff_inv,
+                e_field_update_coeff_inv,
+                ..Default::default()
+            }
+        )
+    }
+}
+
+impl Default for MaterialConstants {
+    fn default() -> Self {
+        Self::free_space(GridInfo::DEFAULT_DT)
     }
 }
 
@@ -113,7 +139,7 @@ pub struct PointCharge {
     pub mass: f32,
 }
 
-#[derive(Copy, Clone, Pod, Zeroable, Default)]
+#[derive(Copy, Clone, Pod, Zeroable)]
 #[repr(C)]
 pub struct GridInfo {
     /// Position of the grid's origin cell (the "0,0" cell. NOT the cell at the center)
@@ -125,6 +151,7 @@ pub struct GridInfo {
 }
 
 impl GridInfo {
+    pub const DEFAULT_DT: f32 = 1.0e-6;
     pub fn new(
         position: Vec3,
         grid_dimensions: UVec3,
@@ -136,6 +163,17 @@ impl GridInfo {
             grid_dimensions,
             cell_size,
             dt
+        }
+    }
+}
+
+impl Default for GridInfo {
+    fn default() -> Self {
+        Self {
+            dt: Self::DEFAULT_DT,
+            cell_size: 0.,
+            grid_dimensions: UVec3::ZERO,
+            position: Vec3::ZERO,
         }
     }
 }

@@ -17,9 +17,6 @@ static SPIRV_DIR: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/shaders-spirv
 
 #[kiss3d::main]
 async fn main() {
-    let mat = shader_crate::MaterialConstants::free_space(1.0e-3);
-    println!("{:?}", mat);
-    return;
     let webgpu = WebGpu::default().await.unwrap();
     let backend = GpuBackend::WebGpu(webgpu);
 
