@@ -52,8 +52,10 @@ pub struct GridCell {
     /// Magnetic Field vector (staggered by half-timestep and half-cell-size)
     pub b: Vec3,
     pub _padding0: u32,
-    /// Magnetic Field Intensity vector (staggered by half-timestep and half-cell-size)
-    pub h: Vec3,
+    /// Normalized Magnetic Field Intensity (staggered by half-timestep and half-cell-size)
+    ///
+    /// Normalized in a way such that `hn / MaterialConstants::N_0` is the actual H-field vector
+    pub hn: Vec3,
     pub _padding1: u32,
     /// Electric Field Intensity vector
     pub d: Vec3,
@@ -61,6 +63,8 @@ pub struct GridCell {
 }
 
 /// Material constants for linear, isotropic, and non-dispersive materials ONLY.
+///
+/// All values (eps/permittivity and mu/permeability) are relative to free space.
 #[derive(Copy, Clone, Pod, Zeroable, Debug)]
 #[repr(C)]
 pub struct MaterialConstants {
@@ -82,20 +86,22 @@ impl MaterialConstants {
     /// Impedance of free space
     pub const N_0: f32 = 376.73031346177;
 
-    /// Material constants of free space (vacuum)
+    /// Material constants of free space
     pub fn free_space(dt: f32) -> Self {
-        Self::new_linear(Self::EPS_0, Self::MU_0, dt).unwrap()
+        Self::new_linear(1., 1., dt).unwrap()
     }
 
     /// Creates material constants for a linear/isotropic/non-dispersive material
-    pub fn new_linear(eps: f32, mu: f32, dt: f32) -> Option<Self> {
-        if eps == 0. || mu == 0. {
+    ///
+    /// `eps_r` and `mu_r` are relative to eps and mu of free space.
+    pub fn new_linear(eps_r: f32, mu_r: f32, dt: f32) -> Option<Self> {
+        if eps_r == 0. || mu_r == 0. {
             return None;
         }
         Some(
             Self {
-                b_field_update_coeff_inv: Mat3::from_diagonal(Vec3::splat(-Self::C_0*dt / mu )),
-                e_field_update_coeff_inv: Mat3::from_diagonal(Vec3::splat( Self::C_0*dt / eps)),
+                b_field_update_coeff_inv: Mat3::from_diagonal(Vec3::splat(-Self::C_0*dt / mu_r)),
+                e_field_update_coeff_inv: Mat3::from_diagonal(Vec3::splat( Self::C_0*dt / eps_r)),
                 _padding0: 0,
                 _padding1: 1,
             }
@@ -104,12 +110,15 @@ impl MaterialConstants {
 
     /// Creates material constants for an anisotropic material
     ///
+    /// `eps_r` and `mu_r` are relative to eps and mu of free space.
+    ///
     /// # Panics
     /// When either `eps` or `mu` matrices are non-invertible
-    pub fn new_anisotropic(eps: Mat3, mu: Mat3, dt: f32) -> Option<Self> {
-        let Some((e_field_update_coeff_inv, b_field_update_coeff_inv)) = (eps / (Self::C_0 * dt))
-            .try_inverse()
-            .zip((-mu / (Self::C_0 * dt)).try_inverse()) else {return None };
+    pub fn new_anisotropic(eps_r: Mat3, mu_r: Mat3, dt: f32) -> Option<Self> {
+        let Some((e_field_update_coeff_inv, b_field_update_coeff_inv)) =
+            (eps_r / (Self::C_0 * dt))
+                .try_inverse()
+                .zip((-mu_r / (Self::C_0 * dt)).try_inverse()) else {return None };
 
         Some(
             Self {
@@ -151,6 +160,7 @@ pub struct GridInfo {
 }
 
 impl GridInfo {
+    /// 1μs is the default time step.
     pub const DEFAULT_DT: f32 = 1.0e-6;
     pub fn new(
         position: Vec3,
@@ -171,8 +181,8 @@ impl Default for GridInfo {
     fn default() -> Self {
         Self {
             dt: Self::DEFAULT_DT,
-            cell_size: 0.,
-            grid_dimensions: UVec3::ZERO,
+            cell_size: 1.,
+            grid_dimensions: UVec3::ONE,
             position: Vec3::ZERO,
         }
     }
