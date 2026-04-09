@@ -1,7 +1,7 @@
 #![cfg_attr(target_arch = "spirv", no_std)]
 
 use bytemuck::{Pod, Zeroable};
-use khal_std::glamx::{Mat3, Mat3A, MatExt, UVec3, Vec3, Vec3Swizzles};
+use khal_std::glamx::{BVec3, Mat3, Mat3A, Mat4, MatExt, USizeVec3, UVec3, Vec3, Vec3Swizzles, Vec4, Vec4Swizzles};
 use khal_std::macros::{spirv, spirv_bindgen};
 use khal_std::num_traits::Float;
 
@@ -25,7 +25,32 @@ pub fn h_field_compute(
     }
 
     let idx = vector_to_flat_idx(id, grid.grid_dimensions) as usize; // Flat index of this invocation's grid cell
-    let is_boundary = id.cmpge(grid.grid_dimensions - UVec3::ONE);
+
+    let dim = grid.grid_dimensions.as_usizevec3();
+
+    // Get E-field components from surrounding cells with Dirichlet Boundary Condition
+    // Hn from E stage
+    {
+        let is_not_boundary = id.cmplt(grid.grid_dimensions - UVec3::ONE);
+        let is_not_boundary =
+            USizeVec3::new(is_not_boundary.x as usize, is_not_boundary.y as usize, is_not_boundary.z as usize);
+        let mut incr = USizeVec3::new(1, dim.x, dim.x*dim.y) * is_not_boundary;
+        let e_i = cells[idx + incr.x].e * is_not_boundary.x as f32; // E at the adjacent cell in the +x direction
+        let e_j = cells[idx + incr.y].e * is_not_boundary.y as f32; // E at the adjacent cell in the +y direction
+        let e_k = cells[idx + incr.z].e * is_not_boundary.z as f32; // E at the adjacent cell in the +z direction
+        let e = cells[idx].e;
+
+        // Compute change in normalized H-field and apply it
+        let h_coeff_inv = material[cells[idx].material_idx as usize].hn_update_coeff_inv;
+        let e_curl = Vec4::new(
+            (e_j.z - e.z) - (e_k.y - e.y),
+            (e_k.x - e.x) - (e_i.z - e.z),
+            (e_i.y - e.y) - (e_j.x - e.x),
+            0.
+        ) / grid.cell_size;
+        let delta_hn = h_coeff_inv * e_curl;
+        cells[idx].hn += delta_hn.xyz();
+    }
 }
 
 fn pt_charge_e_field(pt: &PointCharge, cell_position: Vec3) -> Vec3 {
@@ -67,11 +92,9 @@ pub struct GridCell {
 #[repr(C)]
 pub struct MaterialConstants {
     /// Update coefficient for the b-field solving stage
-    pub b_field_update_coeff_inv: Mat3,
-    pub _padding0: u32,
+    pub hn_update_coeff_inv: Mat4,
     /// Update coefficient for the e-field solving stage
-    pub e_field_update_coeff_inv: Mat3,
-    pub _padding1: u32,
+    pub e_update_coeff_inv: Mat4,
 }
 
 impl MaterialConstants {
@@ -98,10 +121,12 @@ impl MaterialConstants {
         }
         Some(
             Self {
-                b_field_update_coeff_inv: Mat3::from_diagonal(Vec3::splat(-Self::C_0*dt / mu_r)),
-                e_field_update_coeff_inv: Mat3::from_diagonal(Vec3::splat( Self::C_0*dt / eps_r)),
-                _padding0: 0,
-                _padding1: 1,
+                hn_update_coeff_inv: Mat4::from_diagonal(
+                    Vec4::from((Vec3::splat(-Self::C_0*dt / mu_r), 1.))
+                ),
+                e_update_coeff_inv: Mat4::from_diagonal(
+                    Vec4::from((Vec3::splat(Self::C_0*dt / eps_r), 1.))
+                ),
             }
         )
     }
@@ -113,15 +138,14 @@ impl MaterialConstants {
     /// # Panics
     /// When either `eps` or `mu` matrices are non-invertible
     pub fn new_anisotropic(eps_r: Mat3, mu_r: Mat3, dt: f32) -> Option<Self> {
-        let Some((e_field_update_coeff_inv, b_field_update_coeff_inv)) =
+        let Some((e_field_update_coeff_inv, h_field_update_coeff_inv)) =
             (eps_r / (Self::C_0 * dt))
                 .try_inverse()
-                .zip((-mu_r / (Self::C_0 * dt)).try_inverse()) else {return None };
-
+                .zip((-mu_r / (Self::C_0 * dt)).try_inverse()) else { return None };
         Some(
             Self {
-                b_field_update_coeff_inv,
-                e_field_update_coeff_inv,
+                hn_update_coeff_inv: Mat4::from_mat3(h_field_update_coeff_inv),
+                e_update_coeff_inv: Mat4::from_mat3(e_field_update_coeff_inv),
                 ..Default::default()
             }
         )
