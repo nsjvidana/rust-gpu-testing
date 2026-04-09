@@ -41,15 +41,38 @@ pub fn h_field_compute(
         let e = cells[idx].e;
 
         // Compute change in normalized H-field and apply it
-        let h_coeff_inv = material[cells[idx].material_idx as usize].hn_update_coeff_inv;
+        let hn_coeff_inv = material[cells[idx].material_idx as usize].hn_update_coeff_inv;
         let e_curl = Vec4::new(
             (e_j.z - e.z) - (e_k.y - e.y),
             (e_k.x - e.x) - (e_i.z - e.z),
             (e_i.y - e.y) - (e_j.x - e.x),
             0.
         ) / grid.cell_size;
-        let delta_hn = h_coeff_inv * e_curl;
+        let delta_hn = hn_coeff_inv * e_curl;
         cells[idx].hn += delta_hn.xyz();
+    }
+
+    // E from Hn stage
+    {
+        let is_not_boundary = id.cmpgt(UVec3::ZERO);
+        let is_not_boundary =
+            USizeVec3::new(is_not_boundary.x as usize, is_not_boundary.y as usize, is_not_boundary.z as usize);
+        let mut incr = USizeVec3::new(1, dim.x, dim.x*dim.y) * is_not_boundary;
+        let hn_i = cells[idx - incr.x].e * is_not_boundary.x as f32; // Hn at the adjacent cell in the -x direction
+        let hn_j = cells[idx - incr.y].e * is_not_boundary.y as f32; // Hn at the adjacent cell in the -y direction
+        let hn_k = cells[idx - incr.z].e * is_not_boundary.z as f32; // Hn at the adjacent cell in the -z direction
+        let hn = cells[idx].hn;
+
+        // Compute change in E-field and apply it
+        let e_coeff_inv = material[cells[idx].material_idx as usize].e_update_coeff_inv;
+        let hn_curl = Vec4::new(
+            (hn_j.z - hn.z) - (hn_k.y - hn.y),
+            (hn_k.x - hn.x) - (hn_i.z - hn.z),
+            (hn_i.y - hn.y) - (hn_j.x - hn.x),
+            0.
+        ) / grid.cell_size;
+        let delta_e = e_coeff_inv * hn_curl;
+        cells[idx].e += delta_e.xyz();
     }
 }
 
@@ -78,6 +101,7 @@ pub struct GridCell {
     /// Normalized Magnetic Field Intensity (staggered by half-timestep and half-cell-size)
     ///
     /// Normalized in a way such that `hn / MaterialConstants::N_0` is the actual H-field vector
+    /// (Hn and E are of the same order of magnitude)
     pub hn: Vec3,
     pub _padding1: u32,
     /// Electric Field Intensity vector
@@ -91,9 +115,9 @@ pub struct GridCell {
 #[derive(Copy, Clone, Pod, Zeroable, Debug)]
 #[repr(C)]
 pub struct MaterialConstants {
-    /// Update coefficient for the b-field solving stage
+    /// Update coefficient for the Hn-field solving stage
     pub hn_update_coeff_inv: Mat4,
-    /// Update coefficient for the e-field solving stage
+    /// Update coefficient for the E-field solving stage
     pub e_update_coeff_inv: Mat4,
 }
 
