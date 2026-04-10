@@ -1,6 +1,9 @@
+use std::ops::Div;
+use glam::{UVec3, Vec3};
 use crate::prelude::*;
 use khal::backend::{Backend, DispatchGrid, GpuBackend, GpuBackendError, GpuBuffer, GpuPass};
 use khal::BufferUsages;
+use rapier3d_meshloader::LoadedShape;
 use shader_crate::{HFieldCompute, GridCell, GridInfo, MaterialConstants, PointCharge};
 
 pub const PROTON_MASS: f32 = 1.6726219259552e-27;
@@ -77,4 +80,42 @@ pub fn encode_h_field_compute(
         &buffers.material_constants,
         &buffers.grid_info
     )
+}
+
+/// Compute grid cell size and index dimensions
+///
+/// This is a helper function, so there is no need to use this function if you know what cell size
+/// you want, how many cells on each axis, etc.
+pub fn compute_grid_dimensions(
+    grid_dimensions: Vec3,
+    min_wavelength: f32,
+    min_feature_length: f32,
+    cells_per_wavelength: u32,
+    cells_per_feature_length: u32,
+) -> (f32, UVec3) {
+    let cell_size = (min_wavelength / cells_per_wavelength as f32)
+        .min(min_feature_length / cells_per_feature_length as f32);
+    (cell_size, grid_dimensions.div(cell_size).ceil().as_uvec3())
+}
+
+/// Calculate the size of the smallest feature in a mesh shape.
+pub fn min_feature_length(mesh: LoadedShape) -> f32 {
+    mesh.raw_mesh.faces.iter().map(|f| {
+        let verts = f.map(|i| mesh.raw_mesh.vertices[i as usize]);
+        let len0 = (Vec3::from_array(verts[0]) - Vec3::from_array(verts[1]))
+            .length_squared();
+        let len1 = (Vec3::from_array(verts[0]) - Vec3::from_array(verts[2]))
+            .length_squared();
+        let len2 = (Vec3::from_array(verts[1]) - Vec3::from_array(verts[2]))
+            .length_squared();
+        len0.max(len1).max(len2).sqrt()
+    }).max_by(|a, b| a.total_cmp(b)).expect("Mesh cannot be empty")
+}
+
+/// Calculate the minimum wavelength that will be in the simulation
+///
+/// `max_freq` is the maximum frequency of a signal that will be injected into the simulation
+/// `max_refractive_idx` is the largest refractive index that a material will have
+pub fn min_wavelength(max_freq: f32, max_refractive_idx: f32) -> f32 {
+    MaterialConstants::C_0 / (max_freq * max_refractive_idx)
 }

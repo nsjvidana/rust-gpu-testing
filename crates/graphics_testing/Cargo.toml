@@ -7,6 +7,7 @@ edition.workspace = true
 shader_crate = { path = "../shader_crate/" }
 khal.workspace = true
 kiss3d.workspace = true
+rapier3d-meshloader.workspace = true
 glam.workspace = true
 pollster.workspace = true
 rand.workspace = true
