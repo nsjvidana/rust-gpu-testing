@@ -5,7 +5,7 @@ use crate::prelude::*;
 use khal::backend::{Backend, DispatchGrid, GpuBackend, GpuBackendError, GpuBuffer, GpuPass};
 use khal::BufferUsages;
 use rapier3d_meshloader::LoadedShape;
-use shader_crate::{HFieldCompute, GridCell, GridInfo, MaterialConstants, PointCharge};
+use shader_crate::{FdtdDirichlet, GridCell, GridInfo, MaterialConstants, PointCharge};
 
 pub const PROTON_MASS: f32 = 1.6726219259552e-27;
 pub const ELECTRON_MASS: f32 = 9.109383713928e-31;
@@ -67,7 +67,7 @@ pub fn create_buffers(
 }
 
 pub fn encode_h_field_compute(
-    kernel: &HFieldCompute,
+    kernel: &FdtdDirichlet,
     pass: &mut GpuPass,
     buffers: &mut MaxwellEqsBuffers,
     grid_info: &GridInfo,

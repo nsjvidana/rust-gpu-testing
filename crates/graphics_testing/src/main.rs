@@ -11,7 +11,7 @@ use khal::backend::{Backend, Encoder, GpuBackend, GpuBackendError, WebGpu};
 use khal::Shader;
 use kiss3d::prelude::*;
 use rand::{RngExt, SeedableRng};
-use shader_crate::{HFieldCompute, GridInfo, PointCharge};
+use shader_crate::{FdtdDirichlet, GridInfo, PointCharge};
 
 static SPIRV_DIR: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/shaders-spirv");
 
@@ -31,7 +31,7 @@ async fn main() {
 
 #[derive(Shader)]
 pub struct GpuKernels {
-    pub h_field_compute: HFieldCompute
+    pub h_field_compute: FdtdDirichlet
 }
 
 pub async fn compute_h_field(

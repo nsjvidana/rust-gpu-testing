@@ -9,9 +9,10 @@ use khal_std::num_traits::Float;
 const COULOMB_K: f32 = 8.98755178597214e9;
 
 // TODO: replace spirv with cfg_attr(feature = "dim2/3", spirv(compute(threads(64, 64,)) etc.)
+/// FDTD algorithm with Dirichlet Boundary Condition (0 electric & magnetic field at boundary)
 #[spirv_bindgen]
 #[spirv(compute(threads(64)))]
-pub fn h_field_compute(
+pub fn fdtd_dirichlet<>(
     #[spirv(global_invocation_id)] id: UVec3,
     #[spirv(storage_buffer, descriptor_set = 0, binding = 0)] cells: &mut [GridCell],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] pt_charges: &mut [PointCharge],
