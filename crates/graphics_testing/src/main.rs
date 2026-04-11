@@ -21,7 +21,7 @@ async fn main() {
     let backend = GpuBackend::WebGpu(webgpu);
 
     // Generating input data for the shader
-    let grid_info = GridInfo::new(Vec3::ZERO, UVec3::splat(8), 1.);
+    let grid_info = GridInfo::new(Vec3::ZERO, UVec3::splat(8), Vec3::splat(1.));
     let mut rng = rand::rngs::StdRng::seed_from_u64(1234567);
     let input_data = FDTDData::new(grid_info).unwrap();
     let output_data = compute_h_field(&backend, &input_data).await

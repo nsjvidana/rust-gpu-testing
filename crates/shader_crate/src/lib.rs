@@ -42,11 +42,11 @@ pub fn h_field_compute(
         // Compute change in normalized H-field and apply it
         let hn_coeff_inv = material[cells[idx].material_idx as usize].hn_update_coeff_inv;
         let e_curl = Vec4::new(
-            (e_j.z - e.z) - (e_k.y - e.y),
-            (e_k.x - e.x) - (e_i.z - e.z),
-            (e_i.y - e.y) - (e_j.x - e.x),
+            ((e_j.z - e.z) - (e_k.y - e.y)) / grid.cell_size.x,
+            ((e_k.x - e.x) - (e_i.z - e.z)) / grid.cell_size.y,
+            ((e_i.y - e.y) - (e_j.x - e.x)) / grid.cell_size.z,
             0.
-        ) / grid.cell_size;
+        );
         let delta_hn = hn_coeff_inv * e_curl;
         cells[idx].hn += delta_hn.xyz();
     }
@@ -65,11 +65,11 @@ pub fn h_field_compute(
         // Compute change in E-field and apply it
         let e_coeff_inv = material[cells[idx].material_idx as usize].e_update_coeff_inv;
         let hn_curl = Vec4::new(
-            (hn_j.z - hn.z) - (hn_k.y - hn.y),
-            (hn_k.x - hn.x) - (hn_i.z - hn.z),
-            (hn_i.y - hn.y) - (hn_j.x - hn.x),
+            (hn_j.z - hn.z) - (hn_k.y - hn.y) / grid.cell_size.x,
+            (hn_k.x - hn.x) - (hn_i.z - hn.z) / grid.cell_size.y,
+            (hn_i.y - hn.y) - (hn_j.x - hn.x) / grid.cell_size.z,
             0.
-        ) / grid.cell_size;
+        );
         let delta_e = e_coeff_inv * hn_curl;
         cells[idx].e += delta_e.xyz();
     }
@@ -193,8 +193,10 @@ pub struct GridInfo {
     pub position: Vec3,
     pub dt: f32,
     pub grid_dimensions: UVec3,
+    pub _padding0: u32,
     /// The length of one dimension of the grid's cell
-    pub cell_size: f32,
+    pub cell_size: Vec3,
+    pub _padding1: u32,
 }
 
 impl GridInfo {
@@ -203,13 +205,15 @@ impl GridInfo {
     pub fn new(
         position: Vec3,
         grid_dimensions: UVec3,
-        cell_size: f32,
+        cell_size: Vec3,
     ) -> Self {
         Self {
             position,
             grid_dimensions,
             cell_size,
-            dt: cell_size / (MaterialConstants::C_0 * 2.)
+            dt: cell_size.min_element() / (MaterialConstants::C_0 * 2.),
+            _padding0: 0,
+            _padding1: 0,
         }
     }
 
@@ -220,7 +224,17 @@ impl GridInfo {
     ///
     /// `refractive_idx` must not be zero.
     pub fn dt_from_refractive_idx(&mut self, refractive_idx: f32) -> &mut Self {
-        self.dt = refractive_idx * self.cell_size / (MaterialConstants::C_0 * 2.);
+        self.dt = refractive_idx * self.cell_size.min_element() / (MaterialConstants::C_0 * 2.);
+        self
+    }
+
+    /// Attempt to snap grid cell dimensions to some critical dimension
+    ///
+    /// Use this function if you want to simulate the dimensions of a specific feature on an
+    /// object better. (e.g. repeating features, small features)
+    pub fn snap_to_critical_dimension(&mut self, critical_dimensions: Vec3) -> &mut Self {
+        let cells_per_crit_dim = (critical_dimensions / self.cell_size).ceil();
+        self.cell_size = critical_dimensions / cells_per_crit_dim;
         self
     }
 

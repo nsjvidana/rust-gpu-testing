@@ -95,10 +95,10 @@ pub fn compute_grid_dimensions(
     min_feature_length: f32,
     cells_per_wavelength: NonZeroU32,
     cells_per_feature_length: NonZeroU32,
-) -> (f32, UVec3) {
+) -> (Vec3, UVec3) {
     let cell_size = (min_wavelength / cells_per_wavelength.get() as f32)
         .min(min_feature_length / cells_per_feature_length.get() as f32);
-    (cell_size, grid_dimensions.div(cell_size).ceil().as_uvec3())
+    (Vec3::splat(cell_size), grid_dimensions.div(cell_size).ceil().as_uvec3())
 }
 
 /// Calculate the size of the smallest feature in a mesh shape.
