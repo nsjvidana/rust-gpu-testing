@@ -169,15 +169,8 @@ impl MaterialConstants {
             Self {
                 hn_update_coeff_inv: Mat4::from_mat3(h_field_update_coeff_inv),
                 e_update_coeff_inv: Mat4::from_mat3(e_field_update_coeff_inv),
-                ..Default::default()
             }
         )
-    }
-}
-
-impl Default for MaterialConstants {
-    fn default() -> Self {
-        Self::free_space(GridInfo::DEFAULT_DT)
     }
 }
 
@@ -205,32 +198,33 @@ pub struct GridInfo {
 }
 
 impl GridInfo {
-    /// 1μs is the default time step.
-    pub const DEFAULT_DT: f32 = 1.0e-6;
+    /// Create [`GridInfo`] with a dt value that satisfies the
+    /// Courant Stability Condition
     pub fn new(
         position: Vec3,
         grid_dimensions: UVec3,
         cell_size: f32,
-        dt: f32
     ) -> Self {
         Self {
             position,
             grid_dimensions,
             cell_size,
-            dt
+            dt: cell_size / (MaterialConstants::C_0 * 2.)
         }
     }
-}
 
-impl Default for GridInfo {
-    fn default() -> Self {
-        Self {
-            dt: Self::DEFAULT_DT,
-            cell_size: 1.,
-            grid_dimensions: UVec3::ONE,
-            position: Vec3::ZERO,
-        }
+    /// Change the `dt` of this [`GridInfo`] to account for some minimum refractive index in the
+    /// simulation. Use this if you know the exact minimum refractive index in the simulation.
+    ///
+    /// This function satisfies the Courant Stability Condition.
+    ///
+    /// `refractive_idx` must not be zero.
+    pub fn dt_from_refractive_idx(&mut self, refractive_idx: f32) -> &mut Self {
+        self.dt = refractive_idx * self.cell_size / (MaterialConstants::C_0 * 2.);
+        self
     }
+
+    // TODO: impl dt stability condition that considers the period of a gaussian pulse
 }
 
 #[spirv_bindgen]

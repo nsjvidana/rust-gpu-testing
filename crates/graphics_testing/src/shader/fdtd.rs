@@ -1,3 +1,4 @@
+use std::num::NonZeroU32;
 use std::ops::Div;
 use glam::{UVec3, Vec3};
 use crate::prelude::*;
@@ -86,15 +87,17 @@ pub fn encode_h_field_compute(
 ///
 /// This is a helper function, so there is no need to use this function if you know what cell size
 /// you want, how many cells on each axis, etc.
+///
+/// `min_wavelength` & `min_feature_length` must not be zero.
 pub fn compute_grid_dimensions(
     grid_dimensions: Vec3,
     min_wavelength: f32,
     min_feature_length: f32,
-    cells_per_wavelength: u32,
-    cells_per_feature_length: u32,
+    cells_per_wavelength: NonZeroU32,
+    cells_per_feature_length: NonZeroU32,
 ) -> (f32, UVec3) {
-    let cell_size = (min_wavelength / cells_per_wavelength as f32)
-        .min(min_feature_length / cells_per_feature_length as f32);
+    let cell_size = (min_wavelength / cells_per_wavelength.get() as f32)
+        .min(min_feature_length / cells_per_feature_length.get() as f32);
     (cell_size, grid_dimensions.div(cell_size).ceil().as_uvec3())
 }
 
