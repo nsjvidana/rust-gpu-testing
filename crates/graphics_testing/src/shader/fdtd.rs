@@ -60,7 +60,7 @@ pub struct Source {
 /// Computed as `amplitude * E ^ (-((t - t_offset)/half_duration)^2)`
 ///
 /// If you are using a Gaussian pulse in your simulation, it is recommended to use the [`GridInfo`]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 #[repr(C)]
 pub struct GaussianPulse {
     /// Offset when the significant part of the pulse appears
@@ -167,24 +167,6 @@ pub fn create_buffers(
                 BufferUsages::STORAGE | BufferUsages::COPY_SRC
             )?,
         }
-    )
-}
-
-pub fn encode_h_field_compute(
-    kernel: &FdtdDirichlet,
-    pass: &mut GpuPass,
-    buffers: &mut MaxwellEqsBuffers,
-    grid_info: &GridInfo,
-) -> std::result::Result<(), GpuBackendError> {
-    let workgroup_count = grid_info.grid_dimensions.map(|v| v.div_ceil(4)).to_array();
-    kernel.call(
-        pass,
-        DispatchGrid::Grid(workgroup_count),
-        &mut buffers.cells,
-        &buffers.material_constants,
-        &buffers.source_values,
-        &mut buffers.sources,
-        &buffers.grid_info
     )
 }
 

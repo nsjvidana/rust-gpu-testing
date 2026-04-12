@@ -50,7 +50,8 @@ pub fn fdtd_dirichlet(
             0.
         );
         let delta_hn = hn_coeff_inv * e_curl;
-        cells[idx].hn += delta_hn.xyz();
+        cells[idx].hn.x += hn_coeff_inv.x_axis.x * (e_k.y - e.y) / grid.cell_size.z;
+        // cells[idx].hn += delta_hn.xyz();
     }
 
     // E from Hn stage
@@ -67,13 +68,14 @@ pub fn fdtd_dirichlet(
         // Compute change in E-field and apply it
         let e_coeff_inv = material[cells[idx].material_idx as usize].e_update_coeff_inv;
         let hn_curl = Vec4::new(
-            (hn_j.z - hn.z) - (hn_k.y - hn.y) / grid.cell_size.x,
-            (hn_k.x - hn.x) - (hn_i.z - hn.z) / grid.cell_size.y,
-            (hn_i.y - hn.y) - (hn_j.x - hn.x) / grid.cell_size.z,
+            (hn.z - hn_j.z) - (hn.y - hn_k.y) / grid.cell_size.x,
+            (hn.x - hn_k.x) - (hn.z - hn_i.z) / grid.cell_size.y,
+            (hn.y - hn_i.y) - (hn.x - hn_j.x) / grid.cell_size.z,
             0.
         );
         let delta_e = e_coeff_inv * hn_curl;
-        cells[idx].e += delta_e.xyz();
+        cells[idx].e.y += e_coeff_inv.x_axis.x * (hn.x - hn_k.x) / grid.cell_size.z;
+        // cells[idx].e += delta_e.xyz();
     }
 
     // Source injection
@@ -160,7 +162,7 @@ impl MaterialConstants {
         Some(
             Self {
                 hn_update_coeff_inv: Mat4::from_diagonal(
-                    Vec4::from((Vec3::splat(-Self::C_0*dt / mu_r), 1.))
+                    Vec4::from((Vec3::splat(Self::C_0*dt / mu_r), 1.))
                 ),
                 e_update_coeff_inv: Mat4::from_diagonal(
                     Vec4::from((Vec3::splat(Self::C_0*dt / eps_r), 1.))
@@ -201,7 +203,7 @@ pub struct PointCharge {
     pub mass: f32,
 }
 
-#[derive(Copy, Clone, Pod, Zeroable)]
+#[derive(Copy, Clone, Pod, Zeroable, Debug)]
 #[repr(C)]
 pub struct GridInfo {
     /// Position of the grid's origin cell (the "0,0" cell. NOT the cell at the center)
