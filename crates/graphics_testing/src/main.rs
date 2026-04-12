@@ -54,20 +54,20 @@ pub async fn main_render_loop(
     scene.add_light(Light::point(100.))
         .set_position(Vec3::new(10., 10., 10.));
     // Draw data
-    let bb_extents = grid_info.grid_dimensions.as_vec3() * grid_info.cell_size;
+    let bb_extents = grid_info.idx_dimensions.as_vec3() * grid_info.cell_size;
     let bb_poly_line = bb_polyline(bb_extents, grid_info.position);
 
-    let mut arrow_polylines = Vec::with_capacity(grid_info.grid_dimensions.element_product() as usize);
-    for i in 0..grid_info.grid_dimensions.element_product() {
+    let mut arrow_polylines = Vec::with_capacity(grid_info.idx_dimensions.element_product() as usize);
+    for i in 0..grid_info.idx_dimensions.element_product() {
         let v = Vec3::NEG_Z * grid_info.cell_size / 2.;
         let mut polyline = arrow_polyline(Vec3::ZERO, v);
-        let cell_position = flat_idx_to_vector(i, grid_info.grid_dimensions)
+        let cell_position = flat_idx_to_vector(i, grid_info.idx_dimensions)
             .as_vec3() * grid_info.cell_size;
         polyline.transform = Pose3::from_translation(cell_position);
         arrow_polylines.push(polyline);
     }
     for src in input.sources.iter() {
-        let pos = flat_idx_to_vector(src.cell_idx, grid_info.grid_dimensions).as_vec3()
+        let pos = flat_idx_to_vector(src.cell_idx, grid_info.idx_dimensions).as_vec3()
             .mul(grid_info.cell_size);
         scene.add_sphere(0.1)
             .set_position(pos)
@@ -102,7 +102,7 @@ pub async fn main_render_loop(
                 arrow.transform = Pose3::look_at_rh(Vec3::ZERO, dir, Vec3::Y)
                     .append_translation(pos);
             }
-            println!("{}", out[vector_to_flat_idx(UVec3::Z * 3, grid_info.grid_dimensions) as usize].e);
+            println!("{}", out[vector_to_flat_idx(UVec3::Z * 3, grid_info.idx_dimensions) as usize].e);
         }
 
         // Draw polylines
@@ -122,7 +122,7 @@ pub fn submit_simulation(
     let kernels = GpuKernels::from_backend(&backend)?;
     let mut encoder = backend.begin_encoding();
     let mut pass = encoder.begin_pass("e_field_compute", None);
-    let workgroup_count = grid_info.grid_dimensions.map(|v| v.div_ceil(4)).to_array();
+    let workgroup_count = grid_info.idx_dimensions.map(|v| v.div_ceil(4)).to_array();
     kernels.h_field_compute.call(
         &mut pass,
         DispatchGrid::Grid(workgroup_count),

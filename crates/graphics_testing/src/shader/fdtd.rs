@@ -22,7 +22,7 @@ pub struct FdtdData {
 
 impl FdtdData {
     pub fn new(grid_info: GridInfo) -> Result<Self> {
-        let num_cells = grid_info.grid_dimensions.element_product();
+        let num_cells = grid_info.idx_dimensions.element_product();
         if num_cells == 0 {
             return Err(Error::BufferSizeZero)
         }
@@ -76,7 +76,7 @@ impl GaussianPulse {
         let half_duration = core::f32::consts::FRAC_1_PI / max_frequency; // 1.0 / (π * max_frequency)
         let t_offset = 6. * half_duration;
         let cell_idx_vector = (at_point / grid.cell_size).floor().as_uvec3();
-        let cell_idx = vector_to_flat_idx(cell_idx_vector, grid.grid_dimensions);
+        let cell_idx = vector_to_flat_idx(cell_idx_vector, grid.idx_dimensions);
 
         Self {
             t_offset,

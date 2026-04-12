@@ -21,18 +21,18 @@ pub fn fdtd_dirichlet(
     #[spirv(storage_buffer, descriptor_set = 0, binding = 3)] sources: &mut [GpuSource],
     #[spirv(uniform, descriptor_set = 0, binding = 4)] grid: &GridInfo,
 ) {
-    if id.cmpge(grid.grid_dimensions).any() {
+    if id.cmpge(grid.idx_dimensions).any() {
         return;
     }
 
-    let idx = vector_to_flat_idx(id, grid.grid_dimensions) as usize; // Flat index of this invocation's grid cell
+    let idx = vector_to_flat_idx(id, grid.idx_dimensions) as usize; // Flat index of this invocation's grid cell
 
-    let dim = grid.grid_dimensions.as_usizevec3();
+    let dim = grid.idx_dimensions.as_usizevec3();
 
     // Get E-field components from surrounding cells with Dirichlet Boundary Condition
     // Hn from E stage
     {
-        let is_not_boundary = id.cmplt(grid.grid_dimensions - UVec3::ONE);
+        let is_not_boundary = id.cmplt(grid.idx_dimensions - UVec3::ONE);
         let is_not_boundary =
             USizeVec3::new(is_not_boundary.x as usize, is_not_boundary.y as usize, is_not_boundary.z as usize);
         let mut incr = USizeVec3::new(1, dim.x, dim.x*dim.y) * is_not_boundary;
@@ -50,8 +50,7 @@ pub fn fdtd_dirichlet(
             0.
         );
         let delta_hn = hn_coeff_inv * e_curl;
-        cells[idx].hn.x += hn_coeff_inv.x_axis.x * (e_k.y - e.y) / grid.cell_size.z;
-        // cells[idx].hn += delta_hn.xyz();
+        cells[idx].hn += delta_hn.xyz();
     }
 
     // E from Hn stage
@@ -74,8 +73,7 @@ pub fn fdtd_dirichlet(
             0.
         );
         let delta_e = e_coeff_inv * hn_curl;
-        cells[idx].e.y += e_coeff_inv.x_axis.x * (hn.x - hn_k.x) / grid.cell_size.z;
-        // cells[idx].e += delta_e.xyz();
+        cells[idx].e += delta_e.xyz();
     }
 
     // Source injection
@@ -209,7 +207,7 @@ pub struct GridInfo {
     /// Position of the grid's origin cell (the "0,0" cell. NOT the cell at the center)
     pub position: Vec3,
     pub dt: f32,
-    pub grid_dimensions: UVec3,
+    pub idx_dimensions: UVec3,
     pub _padding0: u32,
     /// The length of one dimension of the grid's cell
     pub cell_size: Vec3,
@@ -226,7 +224,7 @@ impl GridInfo {
     ) -> Self {
         Self {
             position,
-            grid_dimensions,
+            idx_dimensions: grid_dimensions,
             cell_size,
             dt: cell_size.min_element() / (MaterialConstants::C_0 * 2.),
             _padding0: 0,
