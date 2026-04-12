@@ -2,6 +2,7 @@ pub mod shader;
 pub mod error;
 mod prelude;
 mod util;
+mod run_fdtd_1d;
 
 use std::ops::{Div, Mul};
 use crate::shader::fdtd::{FdtdData, GaussianPulse, MaxwellEqsBuffers, ELECTRON_MASS, ELEMENTARY_CHARGE, PROTON_MASS};
@@ -14,13 +15,18 @@ use kiss3d::prelude::*;
 use rand::{RngExt, SeedableRng};
 use shader_crate::{vector_to_flat_idx, FdtdDirichlet, GridCell, GridInfo, MaterialConstants, PointCharge};
 
-static SPIRV_DIR: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/shaders-spirv");
+pub static SPIRV_DIR: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/shaders-spirv");
 
 #[kiss3d::main]
 async fn main() {
     let webgpu = WebGpu::default().await.unwrap();
     let backend = GpuBackend::WebGpu(webgpu);
 
+    // run_fdtd_3d(&backend).await;
+    run_fdtd_1d::run_fdtd_1d(&backend).await;
+}
+
+async fn run_fdtd_3d(backend: &GpuBackend) {
     // Generating input data for the shader
     let pulse_max_freq = 10e6;
 
@@ -40,7 +46,7 @@ async fn main() {
     GridInfo::adjust_dt_for_gaussian_pulse(&mut grid_info.dt, pulse.half_duration, 20);
 
     let mut input_data = FdtdData::new(grid_info).unwrap();
-        input_data.sources.push(pulse.construct_source(100, grid_info.dt, 0.));
+    input_data.sources.push(pulse.construct_source(100, grid_info.dt, 0.));
     input_data.prepare_for_simulation().unwrap();
 
     main_render_loop(&backend, &input_data).await.unwrap();

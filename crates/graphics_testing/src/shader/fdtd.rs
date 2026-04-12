@@ -2,12 +2,10 @@ use std::num::NonZeroU32;
 use std::ops::Div;
 use glam::{UVec3, Vec3, Vec4};
 use crate::prelude::*;
-use khal::backend::{Backend, DispatchGrid, GpuBackend, GpuBackendError, GpuBuffer, GpuPass};
+use khal::backend::{Backend, GpuBackend, GpuBackendError, GpuBuffer};
 use khal::BufferUsages;
-use khal::re_exports::bytemuck::{Pod, Zeroable};
 use rapier3d_meshloader::LoadedShape;
-use shader_crate::{vector_to_flat_idx, FdtdDirichlet, GpuSource, GridCell, GridInfo, MaterialConstants, PointCharge};
-
+use shader_crate::{vector_to_flat_idx, GpuSource, GridCell, GridInfo, MaterialConstants, PointCharge};
 pub const PROTON_MASS: f32 = 1.6726219259552e-27;
 pub const ELECTRON_MASS: f32 = 9.109383713928e-31;
 pub const ELEMENTARY_CHARGE: f32 = 1.602176634e-19;
@@ -141,7 +139,6 @@ impl Default for GaussianPulse {
         }
     }
 }
-
 
 // TODO: move this into impl FdtdData
 pub fn create_buffers(
