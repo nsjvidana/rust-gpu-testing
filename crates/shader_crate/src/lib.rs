@@ -7,7 +7,6 @@ use khal_std::num_traits::Float;
 
 /// The Coulomb constant 1/(4πε_0)
 const COULOMB_K: f32 = 8.98755178597214e9;
-const FRAC_1_PI: f32 = 0.318309886;
 
 // TODO: replace spirv with cfg_attr(feature = "dim2/3", spirv(compute(threads(64, 64,)) etc.)
 /// FDTD algorithm with Dirichlet Boundary Condition (0 electric & magnetic field at boundary)
@@ -16,7 +15,7 @@ const FRAC_1_PI: f32 = 0.318309886;
 pub fn fdtd_dirichlet(
     #[spirv(global_invocation_id)] id: UVec3,
     #[spirv(storage_buffer, descriptor_set = 0, binding = 0)] cells: &mut [GridCell],
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] material: &[MaterialConstants],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] materials: &[MaterialConstants],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] source_values: &[Vec4],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 3)] sources: &mut [GpuSource],
     #[spirv(uniform, descriptor_set = 0, binding = 4)] grid: &GridInfo,
@@ -42,7 +41,7 @@ pub fn fdtd_dirichlet(
         let e = cells[idx].e;
 
         // Compute change in normalized H-field and apply it
-        let hn_coeff_inv = material[cells[idx].material_idx as usize].hn_update_coeff_inv;
+        let hn_coeff_inv = materials[cells[idx].material_idx as usize].hn_update_coeff_inv;
         let e_curl = Vec4::new(
             ((e_j.z - e.z) - (e_k.y - e.y)) / grid.cell_size.x,
             ((e_k.x - e.x) - (e_i.z - e.z)) / grid.cell_size.y,
@@ -65,7 +64,7 @@ pub fn fdtd_dirichlet(
         let hn = cells[idx].hn;
 
         // Compute change in E-field and apply it
-        let e_coeff_inv = material[cells[idx].material_idx as usize].e_update_coeff_inv;
+        let e_coeff_inv = materials[cells[idx].material_idx as usize].e_update_coeff_inv;
         let hn_curl = Vec4::new(
             (hn.z - hn_j.z) - (hn.y - hn_k.y) / grid.cell_size.x,
             (hn.x - hn_k.x) - (hn.z - hn_i.z) / grid.cell_size.y,
@@ -160,7 +159,7 @@ impl MaterialConstants {
         Some(
             Self {
                 hn_update_coeff_inv: Mat4::from_diagonal(
-                    Vec4::from((Vec3::splat(Self::C_0*dt / mu_r), 1.))
+                    Vec4::from((Vec3::splat(-Self::C_0*dt / mu_r), 1.))
                 ),
                 e_update_coeff_inv: Mat4::from_diagonal(
                     Vec4::from((Vec3::splat(Self::C_0*dt / eps_r), 1.))
@@ -215,51 +214,79 @@ pub struct GridInfo {
 }
 
 impl GridInfo {
-    /// Create [`GridInfo`] with a dt value that satisfies the
-    /// Courant Stability Condition
     pub fn new(
-        position: Vec3,
-        grid_dimensions: UVec3,
+        grid_dimensions: Vec3,
         cell_size: Vec3,
+        dt: f32,
     ) -> Self {
         Self {
-            position,
-            idx_dimensions: grid_dimensions,
+            position: Vec3::ZERO,
+            dt,
+            idx_dimensions: (grid_dimensions / cell_size).ceil().as_uvec3(),
             cell_size,
-            dt: cell_size.min_element() / (MaterialConstants::C_0 * 2.),
             _padding0: 0,
             _padding1: 0,
         }
     }
 
-    /// Change the `dt` of this [`GridInfo`] to account for some minimum refractive index in the
-    /// simulation. Use this if you know the exact minimum refractive index in the simulation.
+    /// Adjust `cell_size` to account for a maximum frequency in the simulation
     ///
-    /// This function satisfies the Courant Stability Condition.
-    ///
-    /// `refractive_idx` must not be zero.
-    pub fn dt_from_refractive_idx(&mut self, refractive_idx: f32) -> &mut Self {
-        self.dt = refractive_idx * self.cell_size.min_element() / (MaterialConstants::C_0 * 2.);
-        self
+    /// `refractive_idx_max = 1.0` for worst-case scenario. Cannot be zero.
+    /// `cells_per_min_wavelength >= 10` is sufficient. More is better for accuracy though.
+    pub fn cell_size_for_frequency(
+        cell_size: &mut Vec3,
+        f_max: f32,
+        refractive_idx_max: f32,
+        cells_per_min_wavelength: u32,
+    ) {
+        let min_wavelength = MaterialConstants::C_0 / (f_max * refractive_idx_max);
+        let cell_size1 = min_wavelength / cells_per_min_wavelength as f32;
+        *cell_size = cell_size.min(Vec3::splat(cell_size1))
+    }
+
+    /// Adjust `cell_size` to account for a minimum feature length
+    pub fn cell_size_for_feature_len(
+        cell_size: Vec3,
+        min_feature_len: f32,
+        cells_per_min_feature_len: u32,
+    ) -> Vec3 {
+        let cell_size1 = min_feature_len / cells_per_min_feature_len as f32;
+        cell_size.min(Vec3::splat(cell_size1))
     }
 
     /// Attempt to snap grid cell dimensions to some critical dimension
     ///
     /// Use this function if you want to simulate the dimensions of a specific feature on an
     /// object better. (e.g. repeating features, small features)
-    pub fn snap_to_critical_dimension(&mut self, critical_dimensions: Vec3) -> &mut Self {
-        let cells_per_crit_dim = (critical_dimensions / self.cell_size).ceil();
-        self.cell_size = critical_dimensions / cells_per_crit_dim;
-        self
+    pub fn snap_to_critical_dimension(cell_size: Vec3, critical_dimensions: Vec3) -> Vec3 {
+        let cells_per_crit_dim = (critical_dimensions / cell_size).ceil();
+        critical_dimensions / cells_per_crit_dim
     }
 
-    /// Adjusts the dt in this [`GridInfo`] to properly simulate a Gaussian pulse if needed.
+    /// Turns rectangular `cell_size` into cell dimensions that have the same dimension on all axes.
     ///
-    /// `num_timesteps` - number of timesteps the significant part of the pulse must last for
-    /// (at least 10 to 20 timesteps, depends on the pulse duration)
-    pub fn adjust_dt_from_gaussian_pulse(&mut self, pulse_half_duration: f32, num_timesteps: u32) -> &mut Self {
-        self.dt = self.dt.max(pulse_half_duration / num_timesteps as f32);
-        self
+    /// Picks the smallest of all the dimensions of `cell_size`
+    pub fn cube_cell_size(cell_size: &mut Vec3) {
+        *cell_size = Vec3::splat(cell_size.min_element())
+    }
+
+    /// Adjusts a `dt` to account for some minimum refractive index in the simulation, satisfying
+    /// the Courant Stability Condition.
+    ///
+    /// Ensures that the fastest wave takes at least two timesteps to travel through one grid cell.
+    ///
+    /// `refractive_idx` must not be zero. `refractive_idx = 1.0` for worst-case scenario (wave traveling at
+    /// speed of light)
+    pub fn courant_stability_condition(dt: &mut f32, cell_size: Vec3, min_refractive_idx: f32) {
+        *dt = dt.min(min_refractive_idx * cell_size.min_element() / (MaterialConstants::C_0 * 2.))
+    }
+
+    /// Adjusts `dt` to properly simulate a Gaussian pulse.
+    ///
+    /// `num_timesteps` - minimum number of timesteps the significant part of the pulse must be
+    /// resolved for (at least 10 to 20 timesteps, depending on the pulse duration)
+    pub fn adjust_dt_for_gaussian_pulse(dt: &mut f32, pulse_half_duration: f32, num_timesteps: u32) {
+        *dt = dt.min(pulse_half_duration / num_timesteps as f32)
     }
 }
 

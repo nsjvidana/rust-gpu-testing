@@ -21,6 +21,7 @@ pub struct FdtdData {
 }
 
 impl FdtdData {
+    /// Creates data for FDTD simulation.
     pub fn new(grid_info: GridInfo) -> Result<Self> {
         let num_cells = grid_info.idx_dimensions.element_product();
         if num_cells == 0 {
@@ -28,11 +29,31 @@ impl FdtdData {
         }
         Ok(Self {
             cells: vec![GridCell::default(); num_cells as usize],
-            material_constants: vec![MaterialConstants::free_space(grid_info.dt)],
+            material_constants: vec![],
             grid_info,
-            sources: vec![GaussianPulse::default().construct_source(1, 1., 0.)],
-            point_charges: vec![PointCharge::default()],
+            sources: vec![],
+            point_charges: vec![],
         })
+    }
+
+    /// Prepares the data for simulation by ensuring all buffers won't be empty
+    pub fn prepare_for_simulation(&mut self) -> Result<()> {
+        let grid_info = &self.grid_info;
+
+        if self.cells.is_empty() {
+            return Err(Error::BufferSizeZero);
+        }
+        if self.material_constants.is_empty() {
+            self.material_constants.push(MaterialConstants::free_space(grid_info.dt));
+        }
+        if self.sources.is_empty() {
+            self.sources.push(GaussianPulse::default().construct_source(1, grid_info.dt, 0.));
+        }
+        if self.point_charges.is_empty() {
+            self.point_charges.push(PointCharge::default());
+        }
+
+        Ok(())
     }
 }
 
@@ -59,7 +80,7 @@ pub struct Source {
 ///
 /// Computed as `amplitude * E ^ (-((t - t_offset)/half_duration)^2)`
 ///
-/// If you are using a Gaussian pulse in your simulation, it is recommended to use the [`GridInfo`]
+/// If you are using a Gaussian pulse in your simulation, it is recommended to use [`GridInfo::adjust_dt_for_gaussian_pulse`]
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]
 pub struct GaussianPulse {
@@ -72,8 +93,12 @@ pub struct GaussianPulse {
 }
 
 impl GaussianPulse {
+    /// Make a Gaussian Pulse that contains frequences from 0Hz to `max_frequency`Hz.
+    ///
+    /// # Simulation Stability
+    /// **HIGHLY** recommended to use [`GridInfo::adjust_dt_for_gaussian_pulse`] when using a Gaussian Pulse.
     pub fn from_max_frequency(max_frequency: f32, amplitude: f32, at_point: Vec3, grid: &GridInfo) -> Self {
-        let half_duration = core::f32::consts::FRAC_1_PI / max_frequency; // 1.0 / (π * max_frequency)
+        let half_duration = 0.5 / max_frequency; // 1.0 / (π * max_frequency)
         let t_offset = 6. * half_duration;
         let cell_idx_vector = (at_point / grid.cell_size).floor().as_uvec3();
         let cell_idx = vector_to_flat_idx(cell_idx_vector, grid.idx_dimensions);
@@ -150,10 +175,6 @@ pub fn create_buffers(
                 data.material_constants.as_slice(),
                 BufferUsages::STORAGE
             )?,
-            grid_info: backend.init_buffer(
-                &[data.grid_info],
-                BufferUsages::UNIFORM
-            )?,
             source_values: backend.init_buffer(
                 all_source_values.as_slice(),
                 BufferUsages::STORAGE
@@ -161,6 +182,10 @@ pub fn create_buffers(
             sources: backend.init_buffer(
                 sources.as_slice(),
                 BufferUsages::STORAGE | BufferUsages::COPY_SRC
+            )?,
+            grid_info: backend.init_buffer(
+                &[data.grid_info],
+                BufferUsages::UNIFORM
             )?,
             point_charges: backend.init_buffer(
                 data.point_charges.as_slice(),
