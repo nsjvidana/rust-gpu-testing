@@ -7,18 +7,19 @@ use khal_std::num_traits::Float;
 
 /// The Coulomb constant 1/(4πε_0)
 const COULOMB_K: f32 = 8.98755178597214e9;
+const FRAC_1_PI: f32 = 0.318309886;
 
 // TODO: replace spirv with cfg_attr(feature = "dim2/3", spirv(compute(threads(64, 64,)) etc.)
 /// FDTD algorithm with Dirichlet Boundary Condition (0 electric & magnetic field at boundary)
 #[spirv_bindgen]
 #[spirv(compute(threads(64)))]
-pub fn fdtd_dirichlet<>(
+pub fn fdtd_dirichlet(
     #[spirv(global_invocation_id)] id: UVec3,
     #[spirv(storage_buffer, descriptor_set = 0, binding = 0)] cells: &mut [GridCell],
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] pt_charges: &mut [PointCharge],
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] material: &[MaterialConstants],
-    // TODO: make this parameter into a uniform (khal doesn't support uniform buffers right now).
-    #[spirv(uniform, descriptor_set = 0, binding = 3)] grid: &GridInfo,
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] material: &[MaterialConstants],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] source_values: &[Vec4],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 3)] sources: &mut [GpuSource],
+    #[spirv(uniform, descriptor_set = 0, binding = 4)] grid: &GridInfo,
 ) {
     if id.cmpge(grid.grid_dimensions).any() {
         return;
@@ -73,6 +74,19 @@ pub fn fdtd_dirichlet<>(
         );
         let delta_e = e_coeff_inv * hn_curl;
         cells[idx].e += delta_e.xyz();
+    }
+
+    // Source injection
+    if idx != 0 { return; }
+    for i in 0..sources.len() {
+        let src = &mut sources[i];
+
+        let increment_timestep = (src.curr_timestep < src.begin_timestep) as u32;
+        src.curr_timestep += increment_timestep;
+
+        let enable = (src.curr_timestep >= src.begin_timestep) as u32;
+        let val_idx = src.start_idx + (src.curr_timestep.wrapping_sub(src.begin_timestep)) * enable;
+        cells[src.cell_idx as usize].e += source_values[val_idx as usize].xyz() * enable as f32;
     }
 }
 
@@ -239,7 +253,47 @@ impl GridInfo {
         self
     }
 
-    // TODO: impl dt stability condition that considers the period of a gaussian pulse
+    /// Adjusts the dt in this [`GridInfo`] to properly simulate a Gaussian pulse if needed.
+    ///
+    /// `num_timesteps` - number of timesteps the significant part of the pulse must last for
+    /// (at least 10 to 20 timesteps, depends on the pulse duration)
+    pub fn adjust_dt_from_gaussian_pulse(&mut self, pulse_half_duration: f32, num_timesteps: u32) -> &mut Self {
+        self.dt = self.dt.max(pulse_half_duration / num_timesteps as f32);
+        self
+    }
+}
+
+#[derive(Copy, Clone, Pod, Zeroable)]
+#[repr(C)]
+pub struct GpuSource {
+    /// Index of the first value of this source
+    pub start_idx: u32,
+    /// Index of the last value of this source
+    pub end_idx: u32,
+    /// The index of the cell at which the source will be injected.
+    pub cell_idx: u32,
+    /// When the source should start getting injected
+    pub begin_timestep: u32,
+    /// This value counts up in the simulation until it reaches `begin_timestep`. Keep this at 0
+    /// unless you want to offset the time at which the source is enabled even more.
+    pub curr_timestep: u32
+}
+
+impl GpuSource {
+    pub fn new(
+        start_idx: u32,
+        end_idx: u32,
+        cell_idx: u32,
+        begin_timestep: u32,
+    ) -> Self {
+        Self {
+            start_idx,
+            end_idx,
+            cell_idx,
+            begin_timestep,
+            curr_timestep: 0
+        }
+    }
 }
 
 #[spirv_bindgen]

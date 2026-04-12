@@ -3,7 +3,8 @@ pub mod error;
 mod prelude;
 mod util;
 
-use crate::shader::fdtd::{FDTDData, ELECTRON_MASS, ELEMENTARY_CHARGE, PROTON_MASS};
+use std::ops::Mul;
+use crate::shader::fdtd::{FdtdData, GaussianPulse, ELECTRON_MASS, ELEMENTARY_CHARGE, PROTON_MASS};
 use crate::util::{arrow_polyline, bb_polyline, flat_idx_to_vector};
 use glam::{UVec3, Vec3};
 use include_dir::{include_dir, Dir};
@@ -11,7 +12,7 @@ use khal::backend::{Backend, Encoder, GpuBackend, GpuBackendError, WebGpu};
 use khal::Shader;
 use kiss3d::prelude::*;
 use rand::{RngExt, SeedableRng};
-use shader_crate::{FdtdDirichlet, GridInfo, PointCharge};
+use shader_crate::{FdtdDirichlet, GridCell, GridInfo, PointCharge};
 
 static SPIRV_DIR: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/shaders-spirv");
 
@@ -21,12 +22,18 @@ async fn main() {
     let backend = GpuBackend::WebGpu(webgpu);
 
     // Generating input data for the shader
-    let grid_info = GridInfo::new(Vec3::ZERO, UVec3::splat(8), Vec3::splat(1.));
+    let mut grid_info = GridInfo::new(Vec3::ZERO, UVec3::splat(8), Vec3::splat(1.));
+    let pulse = GaussianPulse::from_max_frequency(1e6, 1., Vec3::ONE, &grid_info);
+        grid_info.adjust_dt_from_gaussian_pulse(pulse.half_duration, 10);
     let mut rng = rand::rngs::StdRng::seed_from_u64(1234567);
-    let input_data = FDTDData::new(grid_info).unwrap();
+    let mut input_data = FdtdData::new(grid_info).unwrap();
+        input_data.sources.push(
+            pulse.construct_source(100, grid_info.dt, grid_info.dt*5.)
+        );
+
     let output_data = compute_h_field(&backend, &input_data).await
         .unwrap();
-    render_result(output_data).await;
+    render_result(output_data, &input_data).await;
 }
 
 #[derive(Shader)]
@@ -36,8 +43,8 @@ pub struct GpuKernels {
 
 pub async fn compute_h_field(
     backend: &GpuBackend,
-    input_data: &FDTDData,
-) -> Result<FDTDData, GpuBackendError> {
+    input_data: &FdtdData,
+) -> Result<FdtdOutput, GpuBackendError> {
     let mut buffers = shader::fdtd::create_buffers(backend, input_data)?;
 
     let kernels = GpuKernels::from_backend(&backend)?;
@@ -56,17 +63,20 @@ pub async fn compute_h_field(
     let point_charges = backend.slow_read_vec(&buffers.point_charges).await?;
 
     Ok(
-        FDTDData {
+        FdtdOutput {
             cells,
-            material_constants: input_data.material_constants.clone(),
             point_charges,
-            grid_info: input_data.grid_info,
         }
     )
 }
 
-pub async fn render_result(output_data: FDTDData) {
-    let grid_info = &output_data.grid_info;
+pub struct FdtdOutput {
+    pub cells: Vec<GridCell>,
+    pub point_charges: Vec<PointCharge>,
+}
+
+pub async fn render_result(output: FdtdOutput, input: &FdtdData) {
+    let grid_info = &input.grid_info;
     let mut window = Window::new("Compute Shader Testing").await;
     let mut camera = OrbitCamera3d::default();
     let mut scene = SceneNode3d::empty();
@@ -75,7 +85,7 @@ pub async fn render_result(output_data: FDTDData) {
     // Draw data
     let bb_extents = grid_info.grid_dimensions.as_vec3() * grid_info.cell_size;
     let bb_poly_line = bb_polyline(bb_extents, grid_info.position);
-    let arrows = output_data.cells.iter()
+    let arrows = output.cells.iter()
         .enumerate()
         .map(|(i, cell)| {
             let i = i as u32;
@@ -84,9 +94,17 @@ pub async fn render_result(output_data: FDTDData) {
                 .as_vec3() * grid_info.cell_size;
             arrow_polyline(cell_position, v)
         }).collect::<Vec<_>>();
-    for pt in output_data.point_charges.iter().map(|v| v.position) {
+
+    for pt in output.point_charges.iter().map(|v| v.position) {
         scene.add_sphere(0.2)
             .set_position(pt)
+            .set_color(BLUE);
+    }
+    for src in input.sources.iter() {
+        let pos = flat_idx_to_vector(src.cell_idx, grid_info.grid_dimensions).as_vec3()
+            .mul(grid_info.cell_size);
+        scene.add_sphere(0.1)
+            .set_position(pos)
             .set_color(RED);
     }
     // Render the window
