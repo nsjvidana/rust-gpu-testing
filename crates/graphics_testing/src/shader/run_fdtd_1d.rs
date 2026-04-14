@@ -18,7 +18,7 @@ pub async fn run_fdtd_1d(backend: &GpuBackend) {
 
     let mut grid_info = GridInfo1D::max_values(grid_dimensions);
     grid_info.min_wavelength(pulse_freq, 1., 10);
-    grid_info.courant_stability_condition(1.);
+    grid_info.courant_stability_condition(1., 5.);
     grid_info.set_dimensions(grid_info.cell_size * 20.);
 
     let pulse = GaussianPulse1D::from_max_frequency(pulse_freq, 1., grid_info.dimensions/2., 100);
@@ -82,6 +82,7 @@ async fn main_render_loop(backend: &GpuBackend, data: Fdtd1dData) -> Result<(), 
             .map(|c| c.e_y.abs())
             .max_by(|a, b| a.total_cmp(b))
             .unwrap();
+        println!("{}", max_val);
         for (i, c) in cells_out.iter().enumerate() {
             let relative_len = c.e_y / max_val;
             let pos = Vec3::Z * i as f32 * grid_info.cell_size;

@@ -121,11 +121,9 @@ impl GridInfo {
         self.update_cell_count()
     }
 
-    pub fn courant_stability_condition(&mut self, n_min: f32) -> &mut Self {
-        let cell_size_min = self.cell_size.min_element();
-        // TODO: use generalized courant stability condition
-        let new_dt = 1. / (2. * MaterialConstants::C_0 * self.cell_size.recip().map(|v| v*v).element_sum().sqrt());
-        self.dt = self.dt.min(new_dt);
+    pub fn courant_stability_condition(&mut self, n_min: f32, safety_margin: f32) -> &mut Self {
+        let new_dt = n_min / (safety_margin * MaterialConstants::C_0 * self.cell_size.recip().map(|v| v*v).element_sum().sqrt());
+        self.dt = new_dt;
         self
     }
 

@@ -22,7 +22,7 @@ rand = "0.10.0"
 include_dir = "*"
 thiserror = "2.0.18"
 # khal
-khal = { git = "https://github.com/dimforge/khal.git", rev = "1dd6b842e9dc5a24ec25f1625ec1c1ef07f4cc1c", features = ["derive"] }
+khal = { git = "https://github.com/dimforge/khal.git", rev = "1dd6b842e9dc5a24ec25f1625ec1c1ef07f4cc1c", features = ["derive", "cpu"] }
 khal-builder = { git = "https://github.com/dimforge/khal.git", rev = "1dd6b842e9dc5a24ec25f1625ec1c1ef07f4cc1c" }
 khal-std = { git = "https://github.com/dimforge/khal.git", rev = "1dd6b842e9dc5a24ec25f1625ec1c1ef07f4cc1c" }
 

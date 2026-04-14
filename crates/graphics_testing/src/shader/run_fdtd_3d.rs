@@ -15,12 +15,12 @@ struct GpuKernels {
 }
 
 pub async fn run_fdtd_3d(backend: &GpuBackend) {
-    let pulse_freq = 5e6;
+    let pulse_freq = 1e6;
 
     let mut grid_info = GridInfo::max_values(Vec3::ZERO);
     grid_info.min_wavelength(pulse_freq, 1., 20);
-    grid_info.courant_stability_condition(1.);
-    grid_info.set_dimensions(grid_info.cell_size * 10.);
+    grid_info.courant_stability_condition(1., 6.);
+    grid_info.set_dimensions(grid_info.cell_size * 30.);
 
     let pulse = GaussianPulse::from_max_frequency(pulse_freq, 1., grid_info.dimensions.xyz()/2., 100);
     grid_info.account_for_pulse(pulse.tau, 10);
@@ -100,9 +100,9 @@ async fn main_render_loop(backend: &GpuBackend, data: Fdtd3dData) -> Result<(), 
             let e = c.e.xyz();
             let relative_len = e.length_squared() / max_len;
             let pos = flat_idx_to_vector(i as _, idx_dims).as_vec3() * grid_info.cell_size;
-            let dir = e.normalize_or(Vec3::NEG_Z) * relative_len * grid_info.cell_size;
+            let dir = e.normalize_or(Vec3::NEG_Z) * grid_info.cell_size / 2.;
 
-            window.draw_line(pos, pos + dir, RED, 2.0, false);
+            window.draw_line(pos, pos + dir, RED.with_alpha((relative_len*1e4).min(1.)), 2.0, false);
         }
 
         window.draw_polyline(&bb_polyline);

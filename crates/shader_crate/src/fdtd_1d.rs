@@ -83,9 +83,9 @@ impl GridInfo1D {
         self.update_cell_count()
     }
 
-    pub fn courant_stability_condition(&mut self, n_min: f32) -> &mut Self {
+    pub fn courant_stability_condition(&mut self, n_min: f32, safety_margin: f32) -> &mut Self {
         let cell_size_min = self.cell_size;
-        self.dt = self.dt.min((n_min * cell_size_min) / (2. * MaterialConstants1D::C_0));
+        self.dt = self.dt.min((n_min * cell_size_min) / (safety_margin * MaterialConstants1D::C_0));
         self
     }
 
@@ -120,7 +120,7 @@ impl MaterialConstants1D {
     pub fn new(eps_r: f32, mu_r: f32, dt: f32) -> Self {
         Self {
             e_update_coeff: (Self::C_0 * dt) / eps_r,
-            hn_update_coeff: (Self::C_0 * dt) / mu_r
+            hn_update_coeff: -(Self::C_0 * dt) / mu_r
         }
     }
 }
