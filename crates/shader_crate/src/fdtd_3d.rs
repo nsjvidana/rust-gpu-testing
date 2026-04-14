@@ -39,8 +39,8 @@ pub fn fdtd_3d(
             (e_i_1.y - e.y)/d.x - (e_j_1.x - e.x)/d.y,
         );
         cells[idx].hn.x += e_curl.x * mat.hn_update_coeff.x;
-        // cells[idx].hn.y += e_curl.y * mat.hn_update_coeff.y;
-        // cells[idx].hn.z += e_curl.z * mat.hn_update_coeff.z;
+        cells[idx].hn.y += e_curl.y * mat.hn_update_coeff.y;
+        cells[idx].hn.z += e_curl.z * mat.hn_update_coeff.z;
     }
 
     {
@@ -57,9 +57,9 @@ pub fn fdtd_3d(
             (hn.x - hn_k_1.x)/d.z - (hn.z - hn_i_1.z)/d.x,
             (hn.y - hn_i_1.y)/d.x - (hn.x - hn_j_1.x)/d.y,
         );
-        // cells[idx].e.x += hn_curl.x * mat.e_update_coeff.x;
+        cells[idx].e.x += hn_curl.x * mat.e_update_coeff.x;
         cells[idx].e.y += hn_curl.y * mat.e_update_coeff.y;
-        // cells[idx].e.z += hn_curl.z * mat.e_update_coeff.z;
+        cells[idx].e.z += hn_curl.z * mat.e_update_coeff.z;
     }
 
     // Soft source injection
@@ -123,7 +123,9 @@ impl GridInfo {
 
     pub fn courant_stability_condition(&mut self, n_min: f32) -> &mut Self {
         let cell_size_min = self.cell_size.min_element();
-        self.dt = self.dt.min((n_min * cell_size_min) / (2. * MaterialConstants::C_0));
+        // TODO: use generalized courant stability condition
+        let new_dt = 1. / (2. * MaterialConstants::C_0 * self.cell_size.recip().map(|v| v*v).element_sum().sqrt());
+        self.dt = self.dt.min(new_dt);
         self
     }
 
