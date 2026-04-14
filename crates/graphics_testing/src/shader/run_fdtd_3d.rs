@@ -35,11 +35,15 @@ pub async fn run_fdtd_3d(backend: &GpuBackend) {
         ..Default::default()
     };
     pulse.add_source(&mut data.sources, &mut data.source_vals, &grid_info);
+    let max_src_val = data.source_vals.iter()
+        .map(|v| v.length_squared())
+        .max_by(|a, b| a.total_cmp(b))
+        .unwrap();
 
-    main_render_loop(backend, data).await.unwrap();
+    main_render_loop(backend, data, max_src_val).await.unwrap();
 }
 
-async fn main_render_loop(backend: &GpuBackend, data: Fdtd3dData) -> Result<(), GpuBackendError> {
+async fn main_render_loop(backend: &GpuBackend, data: Fdtd3dData, max_src_val: f32) -> Result<(), GpuBackendError> {
     let grid_info = &data.grid_info;
     let idx_dims = grid_info.idx_dims.xyz();
 
@@ -103,7 +107,7 @@ async fn main_render_loop(backend: &GpuBackend, data: Fdtd3dData) -> Result<(), 
         }
         for (i, c) in cells_out.iter().enumerate() {
             let e = c.e;
-            let relative_len = e.length_squared() / max_len;
+            let relative_len = e.length_squared() / max_src_val;
             let pos = flat_idx_to_vector(i as _, idx_dims).as_vec3() * grid_info.cell_size;
             let dir = e.normalize_or(Vec3::NEG_Z) * grid_info.cell_size / 2.;
 
