@@ -24,25 +24,25 @@ pub fn fdtd_3d(
     let d = Vec3A::from(grid.cell_size);
     let incr = USizeVec3::new(1, idx_dims.x as _, (idx_dims.x*idx_dims.y) as _);
 
+    // Update Hn from E
     {
         let not_boundary = USizeVec3::from(id.cmplt(idx_dims - UVec3::ONE));
 
         let incr = incr * not_boundary;
-        let e_i_1 = Vec3A::from_vec4(cells[idx + incr.x].e) * not_boundary.x as f32;
-        let e_j_1 = Vec3A::from_vec4(cells[idx + incr.y].e) * not_boundary.y as f32;
-        let e_k_1 = Vec3A::from_vec4(cells[idx + incr.z].e) * not_boundary.z as f32;
-        let e = Vec3A::from_vec4(cells[idx].e);
+        let e_i_1 = Vec3A::from(cells[idx + incr.x].e) * not_boundary.x as f32;
+        let e_j_1 = Vec3A::from(cells[idx + incr.y].e) * not_boundary.y as f32;
+        let e_k_1 = Vec3A::from(cells[idx + incr.z].e) * not_boundary.z as f32;
+        let e = Vec3A::from(cells[idx].e);
 
         let e_curl = Vec3A::new(
             (e_j_1.z - e.z)/d.y - (e_k_1.y - e.y)/d.z,
             (e_k_1.x - e.x)/d.z - (e_i_1.z - e.z)/d.x,
             (e_i_1.y - e.y)/d.x - (e_j_1.x - e.x)/d.y,
         );
-        cells[idx].hn.x += e_curl.x * mat.hn_update_coeff.x;
-        cells[idx].hn.y += e_curl.y * mat.hn_update_coeff.y;
-        cells[idx].hn.z += e_curl.z * mat.hn_update_coeff.z;
+        cells[idx].hn += Vec3::from(Mat3A::from_mat4(mat.hn_update_coeff) * e_curl);
     }
 
+    // Update E from Hn
     {
         let not_boundary = USizeVec3::from(id.cmpgt(UVec3::ZERO));
 
@@ -57,9 +57,7 @@ pub fn fdtd_3d(
             (hn.x - hn_k_1.x)/d.z - (hn.z - hn_i_1.z)/d.x,
             (hn.y - hn_i_1.y)/d.x - (hn.x - hn_j_1.x)/d.y,
         );
-        cells[idx].e.x += hn_curl.x * mat.e_update_coeff.x;
-        cells[idx].e.y += hn_curl.y * mat.e_update_coeff.y;
-        cells[idx].e.z += hn_curl.z * mat.e_update_coeff.z;
+        cells[idx].e += Vec3::from(Mat3A::from_mat4(mat.e_update_coeff) * hn_curl);
     }
 
     // Soft source injection
@@ -69,7 +67,7 @@ pub fn fdtd_3d(
         let source_not_finished = (src.curr_idx <= (src.end_idx - src.start_idx)) as u32;
 
         let val_idx = (src.start_idx + src.curr_idx) as usize;
-        cells[src.cell_idx as usize].e += source_vals[val_idx] * source_not_finished as f32;
+        cells[src.cell_idx as usize].e += source_vals[val_idx].xyz() * source_not_finished as f32;
         src.curr_idx += source_not_finished;
     }
 }
@@ -139,7 +137,8 @@ impl GridInfo {
 #[derive(Copy, Clone, Pod, Zeroable, Default)]
 #[repr(C)]
 pub struct GridCell {
-    pub e: Vec4,
+    pub e: Vec3,
+    pub _padding0: u32,
     pub hn: Vec3,
     pub material_idx: u32,
 }
@@ -147,20 +146,29 @@ pub struct GridCell {
 #[derive(Copy, Clone, Pod, Zeroable)]
 #[repr(C)]
 pub struct MaterialConstants {
-    pub hn_update_coeff: Vec4,
-    pub e_update_coeff: Vec4,
+    pub hn_update_coeff: Mat4,
+    pub e_update_coeff: Mat4,
 }
 
 impl MaterialConstants {
     /// Speed of light in free space
     pub const C_0: f32 = 299792458.0;
 
-    pub fn new_linear(eps_r: f32, mu_r: f32, dt: f32) -> Option<Self> {
+    pub fn new_linear(eps_r: f32, mu_r: f32, dt: f32) -> Self {
         let hn = -(Self::C_0 * dt)/mu_r;
         let e = (Self::C_0 * dt)/eps_r;
+        Self {
+            hn_update_coeff: Mat4::from_diagonal(Vec4::new(hn, hn, hn, 0.)),
+            e_update_coeff: Mat4::from_diagonal(Vec4::new(e, e, e, 0.)),
+        }
+    }
+
+    pub fn anisotropic(eps_r: Mat3A, mu_r: Mat3A, dt: f32) -> Option<Self> {
+        let hn = mu_r / (-Self::C_0 * dt);
+        let e = eps_r / (Self::C_0 * dt);
         Some(Self {
-            hn_update_coeff: Vec4::new(hn, hn, hn, 0.),
-            e_update_coeff: Vec4::new(e, e, e, 0.),
+            hn_update_coeff: Mat4::from_mat3a(hn.try_inverse()?),
+            e_update_coeff: Mat4::from_mat3a(e.try_inverse()?),
         })
     }
 }

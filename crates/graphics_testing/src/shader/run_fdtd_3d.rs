@@ -30,7 +30,7 @@ pub async fn run_fdtd_3d(backend: &GpuBackend) {
     let cell_count = grid_info.idx_dims.xyz().element_product() as usize;
     let mut data = Fdtd3dData {
         cells: vec![GridCell::default(); cell_count],
-        materials: vec![MaterialConstants::new_linear(1., 1., grid_info.dt).unwrap()],
+        materials: vec![MaterialConstants::new_linear(1., 1., grid_info.dt)],
         grid_info: grid_info.clone(),
         ..Default::default()
     };
@@ -78,6 +78,7 @@ async fn main_render_loop(backend: &GpuBackend, data: Fdtd3dData) -> Result<(), 
     }
 
     // Main render loop
+    let mut l = 0.;
     while window.render_3d(&mut scene, &mut camera).await {
         let update_sim = window.get_key(Key::T) == Action::Press;
         if update_sim {
@@ -93,11 +94,15 @@ async fn main_render_loop(backend: &GpuBackend, data: Fdtd3dData) -> Result<(), 
         }
 
         let max_len = cells_out.iter()
-            .map(|c| c.e.xyz().length_squared())
+            .map(|c| c.e.length_squared())
             .max_by(|a, b| a.total_cmp(b))
             .unwrap();
+        if max_len > l {
+            println!("max E magnitude: {}", max_len);
+            l = max_len;
+        }
         for (i, c) in cells_out.iter().enumerate() {
-            let e = c.e.xyz();
+            let e = c.e;
             let relative_len = e.length_squared() / max_len;
             let pos = flat_idx_to_vector(i as _, idx_dims).as_vec3() * grid_info.cell_size;
             let dir = e.normalize_or(Vec3::NEG_Z) * grid_info.cell_size / 2.;
