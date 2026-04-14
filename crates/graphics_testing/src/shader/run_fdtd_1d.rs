@@ -18,7 +18,7 @@ pub async fn run_fdtd_1d(backend: &GpuBackend) {
 
     let mut grid_info = GridInfo1D::max_values(grid_dimensions);
     grid_info.min_wavelength(pulse_freq, 1., 10);
-    grid_info.courant_stability_condition(1., 5.);
+    grid_info.courant_stability_condition(1., 10.);
     grid_info.set_dimensions(grid_info.cell_size * 20.);
 
     let pulse = GaussianPulse1D::from_max_frequency(pulse_freq, 1., grid_info.dimensions/2., 100);

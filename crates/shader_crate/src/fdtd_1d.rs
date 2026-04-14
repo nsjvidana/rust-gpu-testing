@@ -2,6 +2,7 @@ use bytemuck::{Pod, Zeroable};
 use khal_std::glamx::UVec3;
 use khal_std::macros::{spirv, spirv_bindgen};
 use khal_std::num_traits::Float;
+use crate::select_val;
 
 #[spirv_bindgen]
 #[spirv(compute(threads(64)))]
@@ -18,12 +19,14 @@ pub fn fdtd_1d(
 
     let mat = materials[cells[idx].material_idx as usize];
 
-    let is_not_boundary = (idx < cells.len()-1) as usize;
-    let e_y1 = cells[idx + is_not_boundary].e_y * is_not_boundary as f32;
+    let is_not_boundary = idx < cells.len()-1;
+    let next_idx = idx + is_not_boundary as usize;
+    let e_y1 = select_val!(is_not_boundary, cells[next_idx].e_y, 0., f32);
     cells[idx].hn_x += mat.hn_update_coeff * (e_y1 - cells[idx].e_y) / grid_info.cell_size;
 
-    let is_not_boundary = (idx > 0) as usize;
-    let hn_x1 = cells[idx - is_not_boundary].hn_x * is_not_boundary as f32;
+    let is_not_boundary = idx > 0;
+    let prev_idx = idx - is_not_boundary as usize;
+    let hn_x1 = select_val!(is_not_boundary, cells[prev_idx].hn_x, 0., f32);
     cells[idx].e_y += mat.e_update_coeff * (cells[idx].hn_x - hn_x1) / grid_info.cell_size;
 
     // Soft source injection
