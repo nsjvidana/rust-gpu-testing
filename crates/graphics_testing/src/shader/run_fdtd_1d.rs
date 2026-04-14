@@ -83,20 +83,12 @@ async fn main_render_loop(backend: &GpuBackend, data: Fdtd1dData) -> Result<(), 
             .max_by(|a, b| a.total_cmp(b))
             .unwrap();
         for (i, c) in cells_out.iter().enumerate() {
-            let relative_len = (c.e_y / max_val).abs();
+            let relative_len = c.e_y / max_val;
             let pos = Vec3::Z * i as f32 * grid_info.cell_size;
-            let dir = Vec3::Y * relative_len;
-            println!("relative: {}, val: {}", relative_len, c.e_y);
+            let dir = Vec3::Y * relative_len * grid_info.cell_size;
 
-            let line = &mut vert_lines[i];
-            line.transform = Pose3::from_translation(pos);
-            if c.e_y.is_sign_negative() {
-                line.transform = line.transform.append_translation(Vec3::NEG_Y * grid_info.cell_size);
-            }
-            line.color = RED.with_alpha(relative_len);
-            window.draw_polyline(line);
+            window.draw_line(pos, pos + dir, RED, 2.0, false);
         }
-        println!("----------");
 
         window.draw_polyline(&axis_line);
     }

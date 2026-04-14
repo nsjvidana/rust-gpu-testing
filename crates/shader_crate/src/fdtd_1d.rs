@@ -2,7 +2,6 @@ use bytemuck::{Pod, Zeroable};
 use khal_std::glamx::UVec3;
 use khal_std::macros::{spirv, spirv_bindgen};
 use khal_std::num_traits::Float;
-use crate::GridCell;
 
 #[spirv_bindgen]
 #[spirv(compute(threads(64)))]

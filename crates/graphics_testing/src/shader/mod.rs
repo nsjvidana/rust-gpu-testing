@@ -1,2 +1,2 @@
-pub mod fdtd;
-pub mod double_me;
+pub mod run_fdtd_1d;
+pub mod run_fdtd_3d;
