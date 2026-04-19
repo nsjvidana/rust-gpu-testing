@@ -13,13 +13,12 @@ struct GpuKernels {
 }
 
 pub async fn run_fdtd_1d(backend: &GpuBackend) {
-    let grid_dimensions = 30.;
     let pulse_freq = 1e6;
 
-    let mut grid_info = GridInfo1D::max_values(grid_dimensions);
-    grid_info.min_wavelength(pulse_freq, 1., 10);
-    grid_info.courant_stability_condition(1., 10.);
-    grid_info.set_dimensions(grid_info.cell_size * 20.);
+    let mut grid_info = GridInfo1D::max_values(0.);
+    grid_info.min_wavelength(pulse_freq, 1., 20);
+    grid_info.courant_stability_condition(1., 2.);
+    grid_info.set_dimensions(grid_info.cell_size * 30.);
 
     let pulse = GaussianPulse1D::from_max_frequency(pulse_freq, 1., grid_info.dimensions/2., 100);
     grid_info.account_for_pulse(pulse.tau, 10);
@@ -42,8 +41,8 @@ async fn main_render_loop(backend: &GpuBackend, data: Fdtd1dData) -> Result<(), 
     let mut window = Window::new("Compute Shader Testing").await;
     let mut camera = OrbitCamera3d::default();
     camera.look_at(
-        Vec3::new(1., 1., 0.),
-        Vec3::Z * grid_info.dimensions / 2.
+        Vec3::new(1., 1., grid_info.dimensions),
+        Vec3::ZERO
     );
     let mut scene = SceneNode3d::empty();
     scene.add_light(Light::point(1000.))
@@ -54,10 +53,6 @@ async fn main_render_loop(backend: &GpuBackend, data: Fdtd1dData) -> Result<(), 
 
     let mut cells_out = vec![GridCell1D::default(); grid_info.num_cells as usize];
     let axis_line = Polyline3d::new(vec![Vec3::ZERO, Vec3::Z * grid_info.dimensions]);
-    let vert_line = Polyline3d::new(vec![Vec3::ZERO, Vec3::Y * grid_info.cell_size]);
-    let mut vert_lines = std::iter::repeat(vert_line)
-        .take(grid_info.num_cells as usize)
-        .collect::<Vec<_>>();
     for src in data.sources.iter() {
         let pos = Vec3::Z * src.cell_idx as f32 * grid_info.cell_size;
         scene.add_sphere(grid_info.cell_size / 5.)
@@ -65,6 +60,7 @@ async fn main_render_loop(backend: &GpuBackend, data: Fdtd1dData) -> Result<(), 
             .set_color(RED);
     }
 
+    let mut abs_max_val = 0.;
     while window.render_3d(&mut scene, &mut camera).await {
         if window.get_key(Key::T) == Action::Press {
             backend.synchronize()?;
@@ -82,7 +78,10 @@ async fn main_render_loop(backend: &GpuBackend, data: Fdtd1dData) -> Result<(), 
             .map(|c| c.e_y.abs())
             .max_by(|a, b| a.total_cmp(b))
             .unwrap();
-        println!("{}", max_val);
+        if max_val > abs_max_val {
+            println!("max E magn: {max_val}");
+            abs_max_val = max_val;
+        }
         for (i, c) in cells_out.iter().enumerate() {
             let relative_len = c.e_y / max_val;
             let pos = Vec3::Z * i as f32 * grid_info.cell_size;
