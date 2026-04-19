@@ -5,7 +5,7 @@ use kiss3d::camera::OrbitCamera3d;
 use kiss3d::event::{Action, Key};
 use kiss3d::light::Light;
 use kiss3d::prelude::{Polyline3d, Pose3, SceneNode3d, Window, RED};
-use shader_crate::fdtd_1d::{Fdtd1d, GpuSource1D, GridCell1D, GridInfo1D, MaterialConstants1D};
+use shader_crate::fdtd_1d::{Fdtd1d, GpuSource1D, GridCell1D, GridInfo1D, MaterialConstants1D, PerfectBoundaryData};
 
 #[derive(Shader)]
 struct GpuKernels {
@@ -16,12 +16,12 @@ pub async fn run_fdtd_1d(backend: &GpuBackend) {
     let pulse_freq = 1e6;
 
     let mut grid_info = GridInfo1D::max_values(0.);
-    grid_info.min_wavelength(pulse_freq, 1., 20);
-    grid_info.courant_stability_condition(1., 2.);
+    grid_info.min_wavelength(pulse_freq, 1., 40);
+    grid_info.courant_stability_condition(1., 3.);
     grid_info.set_dimensions(grid_info.cell_size * 30.);
 
     let pulse = GaussianPulse1D::from_max_frequency(pulse_freq, 1., grid_info.dimensions/2., 100);
-    grid_info.account_for_pulse(pulse.tau, 10);
+    grid_info.account_for_pulse(pulse.tau, 15);
 
     println!("{grid_info:?}");
 
@@ -32,17 +32,21 @@ pub async fn run_fdtd_1d(backend: &GpuBackend) {
         ..Default::default()
     };
     pulse.add_source(&mut data.sources, &mut data.source_vals, &grid_info);
+    let max_src_val = data.source_vals.iter()
+        .map(|v| v.abs())
+        .max_by(|a, b| a.total_cmp(b))
+        .unwrap();
 
-    main_render_loop(backend, data).await.unwrap();
+    main_render_loop(backend, data, max_src_val).await.unwrap();
 }
 
-async fn main_render_loop(backend: &GpuBackend, data: Fdtd1dData) -> Result<(), GpuBackendError> {
+async fn main_render_loop(backend: &GpuBackend, data: Fdtd1dData, max_src_val: f32) -> Result<(), GpuBackendError> {
     let grid_info = &data.grid_info;
     let mut window = Window::new("Compute Shader Testing").await;
     let mut camera = OrbitCamera3d::default();
     camera.look_at(
-        Vec3::new(1., 1., grid_info.dimensions),
-        Vec3::ZERO
+        Vec3::new(grid_info.dimensions * 1.5, 0., grid_info.dimensions / 2.),
+        Vec3::new(0., 0., grid_info.dimensions / 2.)
     );
     let mut scene = SceneNode3d::empty();
     scene.add_light(Light::point(1000.))
@@ -83,9 +87,9 @@ async fn main_render_loop(backend: &GpuBackend, data: Fdtd1dData) -> Result<(), 
             abs_max_val = max_val;
         }
         for (i, c) in cells_out.iter().enumerate() {
-            let relative_len = c.e_y / max_val;
+            let relative_len = c.e_y / max_src_val;
             let pos = Vec3::Z * i as f32 * grid_info.cell_size;
-            let dir = Vec3::Y * relative_len * grid_info.cell_size;
+            let dir = Vec3::new(0., relative_len * grid_info.dimensions / 10., 0.);
 
             window.draw_line(pos, pos + dir, RED, 2.0, false);
         }
@@ -110,6 +114,7 @@ fn submit_simulation(
         &mut buffers.materials,
         &buffers.source_vals,
         &mut buffers.sources,
+        &mut buffers.perfect_boundary_data,
         &buffers.grid_info
     )?;
     drop(pass);
@@ -151,6 +156,10 @@ impl Fdtd1dData {
                 self.sources.as_slice(),
                 BufferUsages::STORAGE,
             )?,
+            perfect_boundary_data: backend.init_buffer(
+                &[PerfectBoundaryData::default()],
+                BufferUsages::STORAGE
+            )?,
             grid_info: backend.init_buffer(
                &[self.grid_info],
                 BufferUsages::UNIFORM,
@@ -168,6 +177,7 @@ pub struct Fdtd1dBuffers {
     pub materials: GpuBuffer<MaterialConstants1D>,
     pub source_vals: GpuBuffer<f32>,
     pub sources: GpuBuffer<GpuSource1D>,
+    pub perfect_boundary_data: GpuBuffer<PerfectBoundaryData>,
     pub grid_info: GpuBuffer<GridInfo1D>,
 
     pub cells_read: GpuBuffer<GridCell1D>,

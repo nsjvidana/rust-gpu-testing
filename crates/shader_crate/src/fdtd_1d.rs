@@ -2,6 +2,7 @@ use bytemuck::{Pod, Zeroable};
 use khal_std::glamx::UVec3;
 use khal_std::macros::{spirv, spirv_bindgen};
 use khal_std::num_traits::Float;
+use khal_std::sync::workgroup_memory_barrier_with_group_sync;
 use crate::select_val;
 
 #[spirv_bindgen]
@@ -12,29 +13,40 @@ pub fn fdtd_1d(
     #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] materials: &mut [MaterialConstants1D],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] source_vals: &[f32],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 3)] sources: &mut [GpuSource1D],
-    #[spirv(uniform, descriptor_set = 0, binding = 4)] grid_info: &GridInfo1D,
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 4)] boundary: &mut PerfectBoundaryData,
+    #[spirv(uniform, descriptor_set = 0, binding = 5)] grid_info: &GridInfo1D,
 ) {
-    let idx = id.x as usize;
-    if idx >= cells.len() { return; }
+    let idx = (id.x as usize).min(cells.len() - 1);
 
     let mat = materials[cells[idx].material_idx as usize];
 
-    let is_not_boundary = (idx < cells.len()-1) as usize;
-    let e_y1 = cells[idx + is_not_boundary].e_y * is_not_boundary as f32;
+    if idx == 0 {
+        boundary.hn_x2 = boundary.hn_x1;
+        boundary.hn_x1 = cells[idx].hn_x;
+    }
+    if idx == 0 {
+        boundary.e_y2 = boundary.e_y1;
+        boundary.e_y1 = cells[cells.len() - 1].e_y;
+    }
+    workgroup_memory_barrier_with_group_sync();
+    let is_not_boundary = idx < cells.len()-1;
+    let e_y1 = select_val!(is_not_boundary, cells[idx + is_not_boundary as usize].e_y, boundary.e_y1, f32);
     cells[idx].hn_x += mat.hn_update_coeff * (e_y1 - cells[idx].e_y) / grid_info.cell_size;
 
-    let is_not_boundary = (idx > 0) as usize;
-    let hn_x1 = cells[idx - is_not_boundary].hn_x * is_not_boundary as f32;
+    // workgroup_memory_barrier_with_group_sync();
+    let is_not_boundary = idx > 0;
+    let hn_x1 = select_val!(is_not_boundary, cells[idx - is_not_boundary as usize].hn_x, boundary.hn_x1, f32);
     cells[idx].e_y += mat.e_update_coeff * (cells[idx].hn_x - hn_x1) / grid_info.cell_size;
 
     // Soft source injection
-    if idx != 0 { return; }
-    for i in 0..sources.len() {
-        let src = &mut sources[i];
-        let source_not_finished = (src.curr_idx <= (src.end_idx - src.start_idx)) as u32;
-        let val_idx = (src.start_idx + src.curr_idx) as usize;
-        cells[src.cell_idx as usize].e_y += source_vals[val_idx] * source_not_finished as f32;
-        src.curr_idx += source_not_finished;
+    if idx == 0 {
+        for i in 0..sources.len() {
+            let src = &mut sources[i];
+            let source_not_finished = (src.curr_idx <= (src.end_idx - src.start_idx)) as u32;
+            let val_idx = (src.start_idx + src.curr_idx) as usize;
+            cells[src.cell_idx as usize].e_y += source_vals[val_idx] * source_not_finished as f32;
+            src.curr_idx += source_not_finished;
+        }
     }
 }
 
@@ -104,6 +116,15 @@ pub struct GridCell1D {
     pub e_y: f32,
     pub hn_x: f32,
     pub material_idx: u32,
+}
+
+#[derive(Copy, Clone, Pod, Zeroable, Default)]
+#[repr(C)]
+pub struct PerfectBoundaryData {
+    pub hn_x1: f32,
+    pub hn_x2: f32,
+    pub e_y1: f32,
+    pub e_y2: f32,
 }
 
 #[derive(Copy, Clone, Pod, Zeroable)]
