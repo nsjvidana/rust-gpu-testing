@@ -4,7 +4,7 @@ use khal::{BufferUsages, Shader};
 use kiss3d::camera::OrbitCamera3d;
 use kiss3d::event::{Action, Key};
 use kiss3d::light::Light;
-use kiss3d::prelude::{Polyline3d, Pose3, SceneNode3d, Window, RED};
+use kiss3d::prelude::{Polyline3d, Pose3, SceneNode3d, Window, GREEN, RED};
 use shader_crate::fdtd_1d::{Fdtd1d, GpuSource1D, GridCell1D, GridInfo1D, MaterialConstants1D, PerfectBoundaryData};
 
 #[derive(Shader)]
@@ -13,15 +13,15 @@ struct GpuKernels {
 }
 
 pub async fn run_fdtd_1d(backend: &GpuBackend) {
-    let pulse_freq = 1e6;
+    let pulse_freq = 5e6;
 
     let mut grid_info = GridInfo1D::max_values(0.);
-    grid_info.min_wavelength(pulse_freq, 1., 40);
-    grid_info.courant_stability_condition(1., 10.);
+    grid_info.min_wavelength(pulse_freq, 1., 20);
+    grid_info.courant_stability_condition(1., 2.);
     grid_info.set_dimensions(grid_info.cell_size * 30.);
 
-    let pulse = GaussianPulse1D::from_max_frequency(pulse_freq, 1., grid_info.dimensions/2., 100);
-    grid_info.account_for_pulse(pulse.tau, 15);
+    let pulse = GaussianPulse1D::from_max_frequency(pulse_freq, 1., grid_info.dimensions/2., 1000);
+    grid_info.account_for_pulse(pulse.tau, 10);
 
     println!("{grid_info:?}");
 
@@ -36,6 +36,7 @@ pub async fn run_fdtd_1d(backend: &GpuBackend) {
         .map(|v| v.abs())
         .max_by(|a, b| a.total_cmp(b))
         .unwrap();
+    println!("max src val: {}", max_src_val);
 
     main_render_loop(backend, data, max_src_val).await.unwrap();
 }
@@ -63,10 +64,6 @@ async fn main_render_loop(backend: &GpuBackend, mut data: Fdtd1dData, max_src_va
             .set_color(RED);
     }
 
-    let src_cell_idx = data.sources[0].cell_idx;
-    data.cells[src_cell_idx as usize].e_y = max_src_val;
-    data.source_vals.iter_mut().for_each(|v| *v = 0.);
-
     let mut abs_max_val = 0.;
     let mut cells_out = vec![GridCell1D::default(); grid_info.num_cells as usize];
     let mut boundary_out = vec![PerfectBoundaryData::default()];
@@ -87,12 +84,6 @@ async fn main_render_loop(backend: &GpuBackend, mut data: Fdtd1dData, max_src_va
                 &mut buffers,
                 grid_info
             )?;
-
-            let mut last_7 = Vec::with_capacity(7);
-            last_7.extend(cells_out[cells_out.len() - 5 .. cells_out.len() - 1].iter().map(|c| c.e_y));
-            last_7.push(boundary_out[0].e_y1);
-            last_7.push(boundary_out[0].e_y2);
-            println!("{:?}", last_7);
         }
         prev_action = curr_action;
 
@@ -104,12 +95,20 @@ async fn main_render_loop(backend: &GpuBackend, mut data: Fdtd1dData, max_src_va
             // println!("max E magn: {max_val}");
             abs_max_val = max_val;
         }
-        for (i, c) in cells_out.iter().enumerate() {
+        let mut prev = {
+            let c = &cells_out[0];
+            let relative_len = c.e_y / max_src_val;
+            let pos = Vec3::ZERO;
+            let dir = Vec3::new(0., relative_len * grid_info.dimensions / 10., 0.);
+            pos + dir
+        };
+        for (i, c) in cells_out.iter().enumerate().skip(1) {
             let relative_len = c.e_y / max_src_val;
             let pos = Vec3::Z * i as f32 * grid_info.cell_size;
             let dir = Vec3::new(0., relative_len * grid_info.dimensions / 10., 0.);
-
-            window.draw_line(pos, pos + dir, RED, 2.0, false);
+            let curr = pos + dir;
+            window.draw_line(prev, curr, RED, 2.0, false);
+            prev = curr;
         }
 
         window.draw_polyline(&axis_line);
