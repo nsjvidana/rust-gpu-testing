@@ -24,16 +24,16 @@ pub fn fdtd_1d(
         boundary.hn_x2 = boundary.hn_x1;
         boundary.hn_x1 = cells[idx].hn_x;
     }
-    if idx == 0 {
-        boundary.e_y2 = boundary.e_y1;
-        boundary.e_y1 = cells[cells.len() - 1].e_y;
-    }
     workgroup_memory_barrier_with_group_sync();
     let is_not_boundary = idx < cells.len()-1;
-    let e_y1 = select_val!(is_not_boundary, cells[idx + is_not_boundary as usize].e_y, boundary.e_y1, f32);
+    let e_y1 = select_val!(is_not_boundary, cells[idx + is_not_boundary as usize].e_y, boundary.e_y2, f32);
     cells[idx].hn_x += mat.hn_update_coeff * (e_y1 - cells[idx].e_y) / grid_info.cell_size;
 
-    // workgroup_memory_barrier_with_group_sync();
+    if idx == cells.len() - 1 {
+        boundary.e_y2 = boundary.e_y1;
+        boundary.e_y1 = cells[idx].e_y;
+    }
+    workgroup_memory_barrier_with_group_sync();
     let is_not_boundary = idx > 0;
     let hn_x1 = select_val!(is_not_boundary, cells[idx - is_not_boundary as usize].hn_x, boundary.hn_x1, f32);
     cells[idx].e_y += mat.e_update_coeff * (cells[idx].hn_x - hn_x1) / grid_info.cell_size;

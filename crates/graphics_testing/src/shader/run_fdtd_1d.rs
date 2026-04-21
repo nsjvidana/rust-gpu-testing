@@ -17,7 +17,7 @@ pub async fn run_fdtd_1d(backend: &GpuBackend) {
 
     let mut grid_info = GridInfo1D::max_values(0.);
     grid_info.min_wavelength(pulse_freq, 1., 40);
-    grid_info.courant_stability_condition(1., 3.);
+    grid_info.courant_stability_condition(1., 10.);
     grid_info.set_dimensions(grid_info.cell_size * 30.);
 
     let pulse = GaussianPulse1D::from_max_frequency(pulse_freq, 1., grid_info.dimensions/2., 100);
@@ -40,7 +40,7 @@ pub async fn run_fdtd_1d(backend: &GpuBackend) {
     main_render_loop(backend, data, max_src_val).await.unwrap();
 }
 
-async fn main_render_loop(backend: &GpuBackend, data: Fdtd1dData, max_src_val: f32) -> Result<(), GpuBackendError> {
+async fn main_render_loop(backend: &GpuBackend, mut data: Fdtd1dData, max_src_val: f32) -> Result<(), GpuBackendError> {
     let grid_info = &data.grid_info;
     let mut window = Window::new("Compute Shader Testing").await;
     let mut camera = OrbitCamera3d::default();
@@ -55,7 +55,6 @@ async fn main_render_loop(backend: &GpuBackend, data: Fdtd1dData, max_src_val: f
     let kernels = GpuKernels::from_backend(&backend)?;
     let mut buffers = data.create_buffers(backend)?;
 
-    let mut cells_out = vec![GridCell1D::default(); grid_info.num_cells as usize];
     let axis_line = Polyline3d::new(vec![Vec3::ZERO, Vec3::Z * grid_info.dimensions]);
     for src in data.sources.iter() {
         let pos = Vec3::Z * src.cell_idx as f32 * grid_info.cell_size;
@@ -64,11 +63,23 @@ async fn main_render_loop(backend: &GpuBackend, data: Fdtd1dData, max_src_val: f
             .set_color(RED);
     }
 
+    let src_cell_idx = data.sources[0].cell_idx;
+    data.cells[src_cell_idx as usize].e_y = max_src_val;
+    data.source_vals.iter_mut().for_each(|v| *v = 0.);
+
     let mut abs_max_val = 0.;
+    let mut cells_out = vec![GridCell1D::default(); grid_info.num_cells as usize];
+    let mut boundary_out = vec![PerfectBoundaryData::default()];
+    let mut prev_action = Action::Release;
     while window.render_3d(&mut scene, &mut camera).await {
-        if window.get_key(Key::T) == Action::Press {
+        let curr_action = window.get_key(Key::T);
+        if window.get_key(Key::LControl) == Action::Press {
+            prev_action = Action::Release;
+        }
+        if curr_action != prev_action && curr_action == Action::Press {
             backend.synchronize()?;
             backend.read_buffer(&buffers.cells_read, &mut cells_out).await?;
+            backend.read_buffer(&buffers.boundary_read, &mut boundary_out).await?;
 
             submit_simulation(
                 backend,
@@ -76,14 +87,21 @@ async fn main_render_loop(backend: &GpuBackend, data: Fdtd1dData, max_src_val: f
                 &mut buffers,
                 grid_info
             )?;
+
+            let mut last_7 = Vec::with_capacity(7);
+            last_7.extend(cells_out[cells_out.len() - 5 .. cells_out.len() - 1].iter().map(|c| c.e_y));
+            last_7.push(boundary_out[0].e_y1);
+            last_7.push(boundary_out[0].e_y2);
+            println!("{:?}", last_7);
         }
+        prev_action = curr_action;
 
         let max_val = cells_out.iter()
             .map(|c| c.e_y.abs())
             .max_by(|a, b| a.total_cmp(b))
             .unwrap();
         if max_val > abs_max_val {
-            println!("max E magn: {max_val}");
+            // println!("max E magn: {max_val}");
             abs_max_val = max_val;
         }
         for (i, c) in cells_out.iter().enumerate() {
@@ -125,6 +143,13 @@ fn submit_simulation(
         0,
         buffers.cells.len()
     )?;
+    encoder.copy_buffer_to_buffer(
+        &buffers.perfect_boundary_data,
+        0,
+        &mut buffers.boundary_read,
+        0,
+        buffers.perfect_boundary_data.len()
+    )?;
     backend.submit(encoder)
 }
 
@@ -158,7 +183,7 @@ impl Fdtd1dData {
             )?,
             perfect_boundary_data: backend.init_buffer(
                 &[PerfectBoundaryData::default()],
-                BufferUsages::STORAGE
+                BufferUsages::STORAGE | BufferUsages::COPY_SRC,
             )?,
             grid_info: backend.init_buffer(
                &[self.grid_info],
@@ -167,6 +192,10 @@ impl Fdtd1dData {
             cells_read: backend.init_buffer(
                 self.cells.as_slice(),
                 BufferUsages::COPY_DST | BufferUsages::MAP_READ,
+            )?,
+            boundary_read: backend.uninit_buffer(
+                1,
+                BufferUsages::COPY_DST | BufferUsages::MAP_READ
             )?,
         })
     }
@@ -181,6 +210,7 @@ pub struct Fdtd1dBuffers {
     pub grid_info: GpuBuffer<GridInfo1D>,
 
     pub cells_read: GpuBuffer<GridCell1D>,
+    pub boundary_read: GpuBuffer<PerfectBoundaryData>,
 }
 
 pub struct GaussianPulse1D {
