@@ -18,6 +18,6 @@ async fn main() {
     let webgpu = WebGpu::default().await.unwrap();
     let backend = GpuBackend::WebGpu(webgpu);
 
-    // run_fdtd_3d::run_fdtd_3d(&backend).await;
-    run_fdtd_1d::run_fdtd_1d(&backend).await;
+    run_fdtd_3d::run_fdtd_3d(&backend).await;
+    // run_fdtd_1d::run_fdtd_1d(&backend).await;
 }

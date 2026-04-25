@@ -15,14 +15,19 @@ struct GpuKernels {
 }
 
 pub async fn run_fdtd_3d(backend: &GpuBackend) {
-    let pulse_freq = 1e6;
+    let pulse_freq = 10e6;
 
     let mut grid_info = GridInfo::max_values(Vec3::ZERO);
     grid_info.min_wavelength(pulse_freq, 1., 20);
-    grid_info.courant_stability_condition(1., 6.);
+    grid_info.courant_stability_condition(1., 2.);
     grid_info.set_dimensions(grid_info.cell_size * 30.);
 
-    let pulse = GaussianPulse::from_max_frequency(pulse_freq, 1., grid_info.dimensions.xyz()/2., 100);
+    let pulse = GaussianPulse::from_max_frequency(
+        pulse_freq,
+        1.,
+        grid_info.dimensions.xyz()/2.,
+        1000
+    );
     grid_info.account_for_pulse(pulse.tau, 10);
 
     println!("{grid_info:?}");
@@ -43,7 +48,11 @@ pub async fn run_fdtd_3d(backend: &GpuBackend) {
     main_render_loop(backend, data, max_src_val).await.unwrap();
 }
 
-async fn main_render_loop(backend: &GpuBackend, data: Fdtd3dData, max_src_val: f32) -> Result<(), GpuBackendError> {
+async fn main_render_loop(
+    backend: &GpuBackend,
+    data: Fdtd3dData,
+    max_src_val: f32
+) -> Result<(), GpuBackendError> {
     let grid_info = &data.grid_info;
     let idx_dims = grid_info.idx_dims.xyz();
 

@@ -120,8 +120,9 @@ impl GridInfo {
     }
 
     pub fn courant_stability_condition(&mut self, n_min: f32, safety_margin: f32) -> &mut Self {
-        let new_dt = n_min / (safety_margin * MaterialConstants::C_0 * self.cell_size.recip().map(|v| v*v).element_sum().sqrt());
-        self.dt = new_dt;
+        let new_dt = n_min /
+            (safety_margin * MaterialConstants::C_0 * self.cell_size.map(|v| v*v).recip().element_sum().sqrt());
+        self.dt = self.dt.min(new_dt);
         self
     }
 
