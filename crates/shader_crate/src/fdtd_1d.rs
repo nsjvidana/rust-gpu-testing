@@ -127,7 +127,7 @@ pub struct PerfectBoundaryData {
     pub e_y2: f32,
 }
 
-#[derive(Copy, Clone, Pod, Zeroable)]
+#[derive(Copy, Clone, Pod, Zeroable, Default)]
 #[repr(C)]
 pub struct MaterialConstants1D {
     pub hn_update_coeff: f32,

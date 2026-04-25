@@ -12,25 +12,49 @@ struct GpuKernels {
     pub fdtd_1d: Fdtd1d
 }
 
+// const OBJECT_WIDTH:
+
 pub async fn run_fdtd_1d(backend: &GpuBackend) {
-    let pulse_freq = 5e6;
+    let pulse_freq = 10e6;
+
+    let eps_r_mat = 10_f32;
+    let mu_r_mat = 1.;
+    let n_mat = (eps_r_mat * mu_r_mat).sqrt();
+
+    let n_max = n_mat;
+    let n_min = 1.;
 
     let mut grid_info = GridInfo1D::max_values(0.);
-    grid_info.min_wavelength(pulse_freq, 1., 20);
-    grid_info.courant_stability_condition(1., 2.);
+    grid_info.min_wavelength(pulse_freq, n_max, 20);
+    grid_info.courant_stability_condition(n_min, 2.);
     grid_info.set_dimensions(grid_info.cell_size * 30.);
 
-    let pulse = GaussianPulse1D::from_max_frequency(pulse_freq, 1., grid_info.dimensions/2., 1000);
+    let pulse = GaussianPulse1D::from_max_frequency(
+        pulse_freq,
+        1.,
+        grid_info.dimensions/2.,
+        1000
+    );
     grid_info.account_for_pulse(pulse.tau, 10);
 
     println!("{grid_info:?}");
 
+    let obj = ObjectInfo1D {
+        width: grid_info.dimensions / 10.,
+        position: grid_info.dimensions / 5.,
+        material_constants: MaterialConstants1D::new(eps_r_mat, mu_r_mat, grid_info.dt)
+    };
+
     let mut data = Fdtd1dData {
         cells: vec![GridCell1D::default(); grid_info.num_cells as usize],
-        materials: vec![MaterialConstants1D::new(1., 1., grid_info.dt)],
+        materials: vec![
+            MaterialConstants1D::new(1., 1., grid_info.dt),
+            obj.material_constants,
+        ],
         grid_info: grid_info.clone(),
         ..Default::default()
     };
+    data.add_object(obj);
     pulse.add_source(&mut data.sources, &mut data.source_vals, &grid_info);
     let max_src_val = data.source_vals.iter()
         .map(|v| v.abs())
@@ -41,12 +65,16 @@ pub async fn run_fdtd_1d(backend: &GpuBackend) {
     main_render_loop(backend, data, max_src_val).await.unwrap();
 }
 
-async fn main_render_loop(backend: &GpuBackend, mut data: Fdtd1dData, max_src_val: f32) -> Result<(), GpuBackendError> {
+async fn main_render_loop(
+    backend: &GpuBackend,
+    mut data: Fdtd1dData,
+    max_src_val: f32,
+) -> Result<(), GpuBackendError> {
     let grid_info = &data.grid_info;
     let mut window = Window::new("Compute Shader Testing").await;
     let mut camera = OrbitCamera3d::default();
     camera.look_at(
-        Vec3::new(grid_info.dimensions * 1.5, 0., grid_info.dimensions / 2.),
+        Vec3::new(-grid_info.dimensions * 1.5, 0., grid_info.dimensions / 2.),
         Vec3::new(0., 0., grid_info.dimensions / 2.)
     );
     let mut scene = SceneNode3d::empty();
@@ -111,6 +139,14 @@ async fn main_render_loop(backend: &GpuBackend, mut data: Fdtd1dData, max_src_va
             prev = curr;
         }
 
+        let half_line = Vec3::new(0., grid_info.cell_size, 0.);
+        for obj in data.objects.iter() {
+            let start = Vec3::new(0., 0., obj.position - obj.width);
+            let end = Vec3::new(0., 0., obj.position + obj.width);
+            window.draw_line(start + half_line, start - half_line, GREEN, 2.0, false);
+            window.draw_line(end + half_line, end - half_line, GREEN, 2.0, false);
+        }
+
         window.draw_polyline(&axis_line);
     }
     Ok(())
@@ -158,7 +194,9 @@ pub struct Fdtd1dData {
     pub materials: Vec<MaterialConstants1D>,
     pub source_vals: Vec<f32>,
     pub sources: Vec<GpuSource1D>,
-    pub grid_info: GridInfo1D
+    pub grid_info: GridInfo1D,
+
+    pub objects: Vec<ObjectInfo1D>,
 }
 
 impl Fdtd1dData {
@@ -198,6 +236,30 @@ impl Fdtd1dData {
             )?,
         })
     }
+
+    pub fn add_object(&mut self, obj: ObjectInfo1D) -> &mut Self {
+        let mat_idx = self.materials.len() as u32;
+        self.materials.push(obj.material_constants);
+
+        let center_idx = (obj.position / self.grid_info.cell_size) as usize;
+        let idx_width = (obj.width / self.grid_info.cell_size).ceil() as usize;
+        let start = (center_idx - idx_width/2).max(0);
+        for cell in self.cells.iter_mut()
+            .skip(start)
+            .take(idx_width)
+        {
+            cell.material_idx = mat_idx;
+        }
+        self.objects.push(obj);
+        self
+    }
+}
+
+#[derive(Default)]
+pub struct ObjectInfo1D {
+    pub width: f32,
+    pub position: f32,
+    pub material_constants: MaterialConstants1D
 }
 
 pub struct Fdtd1dBuffers {
