@@ -32,9 +32,10 @@ pub async fn run_fdtd_1d(backend: &GpuBackend) {
 
     let pulse = GaussianPulse1D::from_max_frequency(
         pulse_freq,
-        0.1,
+        1.,
         grid_info.dimensions/2.,
-        1000
+        1000,
+        grid_info.dt
     );
     grid_info.account_for_pulse(pulse.tau, 10);
 
@@ -289,9 +290,18 @@ impl GaussianPulse1D {
     ///
     /// # Simulation Stability
     /// **HIGHLY** recommended to use [`GridInfo1D::account_for_pulse`] when using a [`GaussianPulse1D`].
-    pub fn from_max_frequency(max_frequency: f32, amplitude: f32, at_point: f32, resolution: u32) -> Self {
-        debug_assert_ne!(resolution, 0);
+    pub fn from_max_frequency(
+        max_frequency: f32,
+        amplitude: f32,
+        at_point: f32,
+        min_resolution: u32,
+        dt: f32
+    ) -> Self {
+        debug_assert_ne!(min_resolution, 0);
+
         let tau = 0.5 / max_frequency;
+        let approx_pulse_duration = 12. * tau;
+        let resolution = min_resolution.max((approx_pulse_duration / dt) as u32);
         Self {
             amplitude,
             tau,
