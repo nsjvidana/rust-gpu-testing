@@ -249,7 +249,7 @@ impl GaussianPulse {
             t += grid_info.dt;
             let g = core::f32::consts::E.powf(
                 -((t - self.t_0) / self.tau).powi(2)
-            );
+            ) * self.amplitude;
             vals[i as usize] = Vec4::new(g, g, g, 0.);
         }
 

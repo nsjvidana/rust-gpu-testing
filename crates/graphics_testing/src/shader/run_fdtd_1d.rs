@@ -15,23 +15,24 @@ struct GpuKernels {
 // const OBJECT_WIDTH:
 
 pub async fn run_fdtd_1d(backend: &GpuBackend) {
-    let pulse_freq = 10e6;
+    let pulse_freq = 1e6;
 
-    let eps_r_mat = 10_f32;
-    let mu_r_mat = 1.;
+    let eps_r_mat = 1.0_f32;
+    let mu_r_mat = 1.0_f32;
     let n_mat = (eps_r_mat * mu_r_mat).sqrt();
 
-    let n_max = n_mat;
-    let n_min = 1.;
+    let n_max = n_mat.max(1.);
+    let n_min = n_mat.min(1.);
 
     let mut grid_info = GridInfo1D::max_values(0.);
-    grid_info.min_wavelength(pulse_freq, n_max, 20);
+    grid_info.min_wavelength(pulse_freq, n_max, 10);
     grid_info.courant_stability_condition(n_min, 2.);
     grid_info.set_dimensions(grid_info.cell_size * 30.);
+    // grid_info.snap_to_critical_dim(grid_info.cell_size / 2.);
 
     let pulse = GaussianPulse1D::from_max_frequency(
         pulse_freq,
-        1.,
+        0.1,
         grid_info.dimensions/2.,
         1000
     );
@@ -98,7 +99,7 @@ async fn main_render_loop(
     let mut prev_action = Action::Release;
     while window.render_3d(&mut scene, &mut camera).await {
         let curr_action = window.get_key(Key::T);
-        if window.get_key(Key::LControl) == Action::Press {
+        if window.get_key(Key::LControl) != Action::Press {
             prev_action = Action::Release;
         }
         if curr_action != prev_action && curr_action == Action::Press {
@@ -120,7 +121,7 @@ async fn main_render_loop(
             .max_by(|a, b| a.total_cmp(b))
             .unwrap();
         if max_val > abs_max_val {
-            // println!("max E magn: {max_val}");
+            println!("max E magn: {max_val}");
             abs_max_val = max_val;
         }
         let mut prev = {
@@ -313,7 +314,7 @@ impl GaussianPulse1D {
             let g = core::f32::consts::E.powf(
                 -((t - self.t_0) / self.tau).powi(2)
             );
-            vals[i as usize] = g;
+            vals[i as usize] = g * self.amplitude;
         }
 
         let start_idx = source_values.len() as u32;
