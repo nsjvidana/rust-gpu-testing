@@ -100,9 +100,22 @@ impl GridInfo1D {
         self.update_cell_count()
     }
 
-    pub fn courant_stability_condition(&mut self, n_min: f32, safety_margin: f32) -> &mut Self {
-        self.dt = self.dt.min((n_min * self.cell_size) / (safety_margin * MaterialConstants1D::C_0));
+    /// Sets up `dt` for simulating with a perfect boundary condition.
+    ///
+    /// Guarantees that the fastest wave in the simulation travels 1 grid cell in exactly
+    /// two timesteps.
+    pub fn set_cfl_perfect_boundary(&mut self, n_boundary:f32) -> &mut Self {
+        self.dt = self.compute_cfl_upper_bound(n_boundary, 2.);
         self
+    }
+
+    pub fn set_cfl_condition(&mut self, n_min: f32, safety_margin: f32) -> &mut Self {
+        self.dt = self.dt.min(self.compute_cfl_upper_bound(n_min, safety_margin));
+        self
+    }
+
+    pub fn compute_cfl_upper_bound(&self, n_min: f32, safety_margin: f32) -> f32 {
+        (n_min * self.cell_size) / (safety_margin * MaterialConstants1D::C_0)
     }
 
     /// Set the amount of `dt` time steps per shader dispatch.

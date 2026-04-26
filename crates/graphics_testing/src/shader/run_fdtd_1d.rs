@@ -4,7 +4,7 @@ use khal::{BufferUsages, Shader};
 use kiss3d::camera::OrbitCamera3d;
 use kiss3d::event::{Action, Key};
 use kiss3d::light::Light;
-use kiss3d::prelude::{Polyline3d, Pose3, SceneNode3d, Window, GREEN, RED};
+use kiss3d::prelude::{Color, Polyline3d, Pose3, SceneNode3d, Window, GREEN, RED};
 use shader_crate::fdtd_1d::{Fdtd1d, GpuSource1D, GridCell1D, GridInfo1D, MaterialConstants1D, PerfectBoundaryData};
 
 #[derive(Shader)]
@@ -27,8 +27,7 @@ pub async fn run_fdtd_1d(backend: &GpuBackend) {
 
     let mut grid_info = GridInfo1D::max_values(simulation_dimensions_z);
     grid_info
-        .min_wavelength(max_pulse_freq, n_max, 20)
-        .courant_stability_condition(n_min, 2.);
+        .min_wavelength(max_pulse_freq, n_max, 20);
     grid_info
         .set_step_count(2);
 
@@ -40,12 +39,14 @@ pub async fn run_fdtd_1d(backend: &GpuBackend) {
         20
     );
 
+    grid_info.set_cfl_perfect_boundary(1.);
     println!("{grid_info:?}");
 
     let obj = ObjectInfo1D {
         width: grid_info.dimensions / 10.,
         position: grid_info.dimensions / 2.,
-        material_constants: MaterialConstants1D::new(eps_r_mat, mu_r_mat, grid_info.dt)
+        material_constants: MaterialConstants1D::new(eps_r_mat, mu_r_mat, grid_info.dt),
+        color: GREEN
     };
 
     let mut data = Fdtd1dData {
@@ -79,7 +80,7 @@ async fn main_render_loop(
         core::f32::consts::PI / 4.0,
         0.1,
         grid_info.dimensions * 3.,
-        Vec3::new(-grid_info.dimensions * 1.5, 0., grid_info.dimensions / 2.),
+        Vec3::new(-grid_info.dimensions, 0., grid_info.dimensions / 2.),
         Vec3::new(0., 0., grid_info.dimensions / 2.)
     );
     let mut scene = SceneNode3d::empty();
@@ -146,10 +147,12 @@ async fn main_render_loop(
 
         let half_line = Vec3::new(0., grid_info.dimensions / 10., 0.);
         for obj in data.objects.iter() {
-            let start = Vec3::new(0., 0., obj.position - obj.width);
-            let end = Vec3::new(0., 0., obj.position + obj.width);
-            window.draw_line(start + half_line, start - half_line, GREEN, 2.0, false);
-            window.draw_line(end + half_line, end - half_line, GREEN, 2.0, false);
+            let (start_idx, idx_width) = data.get_obj_indices(obj);
+            let start = Vec3::new(0., 0., start_idx as f32 * grid_info.cell_size);
+            let end = (start_idx + idx_width).min(data.cells.len()-1) as f32 * grid_info.cell_size;
+                let end = Vec3::new(0., 0., end);
+            window.draw_line(start + half_line, start - half_line, obj.color, 2.0, false);
+            window.draw_line(end + half_line, end - half_line, obj.color, 2.0, false);
         }
 
         window.draw_polyline(&axis_line);
@@ -248,9 +251,7 @@ impl Fdtd1dData {
         let mat_idx = self.materials.len() as u32;
         self.materials.push(obj.material_constants);
 
-        let center_idx = (obj.position / self.grid_info.cell_size) as usize;
-        let idx_width = (obj.width / self.grid_info.cell_size).ceil() as usize;
-        let start = (center_idx - idx_width/2).max(0);
+        let (start, idx_width) = self.get_obj_indices(&obj);
         for cell in self.cells.iter_mut()
             .skip(start)
             .take(idx_width)
@@ -260,13 +261,22 @@ impl Fdtd1dData {
         self.objects.push(obj);
         self
     }
+
+    /// Returns starting cell index and the width of the object in grid cells: `(start_idx, idx_width)`
+    pub fn get_obj_indices(&self, obj: &ObjectInfo1D) -> (usize, usize) {
+        let center_idx = (obj.position / self.grid_info.cell_size) as usize;
+        let idx_width = (obj.width / self.grid_info.cell_size).ceil() as usize;
+        let start = (center_idx - idx_width.div_ceil(2)).max(0);
+        (start, idx_width)
+    }
 }
 
 #[derive(Default)]
 pub struct ObjectInfo1D {
     pub width: f32,
     pub position: f32,
-    pub material_constants: MaterialConstants1D
+    pub material_constants: MaterialConstants1D,
+    pub color: Color
 }
 
 pub struct Fdtd1dBuffers {
