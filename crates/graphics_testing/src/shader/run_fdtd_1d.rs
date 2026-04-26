@@ -15,35 +15,36 @@ struct GpuKernels {
 // const OBJECT_WIDTH:
 
 pub async fn run_fdtd_1d(backend: &GpuBackend) {
-    let pulse_freq = 1e6;
+    let max_pulse_freq = 10e6;
+    let simulation_dimensions_z =  800.;
 
-    let eps_r_mat = 1.0_f32;
-    let mu_r_mat = 1.0_f32;
+    let eps_r_mat = 2.0_f32;
+    let mu_r_mat = 0.5_f32;
     let n_mat = (eps_r_mat * mu_r_mat).sqrt();
 
     let n_max = n_mat.max(1.);
     let n_min = n_mat.min(1.);
 
-    let mut grid_info = GridInfo1D::max_values(0.);
-    grid_info.min_wavelength(pulse_freq, n_max, 10);
-    grid_info.courant_stability_condition(n_min, 2.);
-    grid_info.set_dimensions(grid_info.cell_size * 30.);
-    // grid_info.snap_to_critical_dim(grid_info.cell_size / 2.);
+    let mut grid_info = GridInfo1D::max_values(simulation_dimensions_z);
+    grid_info
+        .min_wavelength(max_pulse_freq, n_max, 20)
+        .courant_stability_condition(n_min, 2.);
+    grid_info
+        .set_step_count(2);
 
     let pulse = GaussianPulse1D::from_max_frequency(
-        pulse_freq,
+        max_pulse_freq,
         1.,
-        grid_info.dimensions/2.,
-        1000,
-        grid_info.dt
+        grid_info.dimensions - grid_info.dimensions/5.,
+        &mut grid_info,
+        20
     );
-    grid_info.account_for_pulse(pulse.tau, 10);
 
     println!("{grid_info:?}");
 
     let obj = ObjectInfo1D {
         width: grid_info.dimensions / 10.,
-        position: grid_info.dimensions / 5.,
+        position: grid_info.dimensions / 2.,
         material_constants: MaterialConstants1D::new(eps_r_mat, mu_r_mat, grid_info.dt)
     };
 
@@ -74,8 +75,10 @@ async fn main_render_loop(
 ) -> Result<(), GpuBackendError> {
     let grid_info = &data.grid_info;
     let mut window = Window::new("Compute Shader Testing").await;
-    let mut camera = OrbitCamera3d::default();
-    camera.look_at(
+    let mut camera = OrbitCamera3d::new_with_frustum(
+        core::f32::consts::PI / 4.0,
+        0.1,
+        grid_info.dimensions * 3.,
         Vec3::new(-grid_info.dimensions * 1.5, 0., grid_info.dimensions / 2.),
         Vec3::new(0., 0., grid_info.dimensions / 2.)
     );
@@ -141,7 +144,7 @@ async fn main_render_loop(
             prev = curr;
         }
 
-        let half_line = Vec3::new(0., grid_info.cell_size, 0.);
+        let half_line = Vec3::new(0., grid_info.dimensions / 10., 0.);
         for obj in data.objects.iter() {
             let start = Vec3::new(0., 0., obj.position - obj.width);
             let end = Vec3::new(0., 0., obj.position + obj.width);
@@ -162,16 +165,18 @@ fn submit_simulation(
 ) -> Result<(), GpuBackendError> {
     let mut encoder = backend.begin_encoding();
     let mut pass = encoder.begin_pass("", None);
-    kernels.fdtd_1d.call(
-        &mut pass,
-        DispatchGrid::Grid([grid_info.num_cells.div_ceil(64), 1, 1]),
-        &mut buffers.cells,
-        &mut buffers.materials,
-        &buffers.source_vals,
-        &mut buffers.sources,
-        &mut buffers.perfect_boundary_data,
-        &buffers.grid_info
-    )?;
+    for _ in 0..grid_info.step_count {
+        kernels.fdtd_1d.call(
+            &mut pass,
+            DispatchGrid::Grid([grid_info.num_cells.div_ceil(64), 1, 1]),
+            &mut buffers.cells,
+            &mut buffers.materials,
+            &buffers.source_vals,
+            &mut buffers.sources,
+            &mut buffers.perfect_boundary_data,
+            &buffers.grid_info
+        )?;
+    }
     drop(pass);
     encoder.copy_buffer_to_buffer(
         &buffers.cells,
@@ -286,22 +291,24 @@ pub struct GaussianPulse1D {
 }
 
 impl GaussianPulse1D {
-    /// `resolution` is the number of data points of this source. It can't be zero.
+    /// Create a Gaussian Pulse that has a maximum frequency of `max_frequency`
     ///
     /// # Simulation Stability
     /// **HIGHLY** recommended to use [`GridInfo1D::account_for_pulse`] when using a [`GaussianPulse1D`].
+    /// Have `cells_resolution >= 10` for better results
     pub fn from_max_frequency(
         max_frequency: f32,
         amplitude: f32,
         at_point: f32,
-        min_resolution: u32,
-        dt: f32
+        grid_info: &mut GridInfo1D,
+        cells_resolution: u32,
     ) -> Self {
-        debug_assert_ne!(min_resolution, 0);
-
         let tau = 0.5 / max_frequency;
+
+        grid_info.dt = grid_info.dt.min(tau / cells_resolution as f32);
+
         let approx_pulse_duration = 12. * tau;
-        let resolution = min_resolution.max((approx_pulse_duration / dt) as u32);
+        let resolution = (approx_pulse_duration / grid_info.dt).ceil() as u32;
         Self {
             amplitude,
             tau,
