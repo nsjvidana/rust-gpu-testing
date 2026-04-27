@@ -12,7 +12,7 @@ pub fn fdtd_1d(
     #[spirv(storage_buffer, descriptor_set = 0, binding = 0)] cells: &mut [GridCell1D],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] materials: &mut [MaterialConstants1D],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] source_vals: &[f32],
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 3)] sources: &mut [GpuSource1D],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 3)] tfsf_sources: &mut [GpuSource1D],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 4)] boundary: &mut PerfectBoundaryData,
     #[spirv(uniform, descriptor_set = 0, binding = 5)] grid_info: &GridInfo1D,
 ) {
@@ -40,14 +40,28 @@ pub fn fdtd_1d(
     cells[idx].e_y += mat.e_update_coeff * (cells[idx].hn_x - hn_x1) / grid_info.cell_size;
 
     // Soft source injection
-    if idx == 0 {
-        for i in 0..sources.len() {
-            let src = &mut sources[i];
-            let source_not_finished = (src.curr_idx <= (src.end_idx - src.start_idx)) as u32;
-            let val_idx = (src.start_idx + src.curr_idx) as usize;
-            cells[src.cell_idx as usize].e_y += source_vals[val_idx] * source_not_finished as f32;
-            src.curr_idx += source_not_finished;
-        }
+    for i in 0..tfsf_sources.len() {
+        let src = &mut tfsf_sources[i];
+        let src_cell_idx = src.cell_idx as usize;
+        if src_cell_idx != idx { continue; }
+
+        let source_not_finished = (src.curr_idx <= (src.end_idx - src.start_idx)) as u32;
+        let val_idx = (src.start_idx + src.curr_idx) as usize;
+        cells[src_cell_idx].e_y += source_vals[val_idx] * source_not_finished as f32;
+
+        // TF/SF correction terms
+        let mat_idx_1 = cells[src_cell_idx - 1].material_idx as usize;
+        let mat_1 = materials[mat_idx_1];
+        let src_e_y = source_vals[val_idx];
+        cells[src_cell_idx - 1].hn_x -= mat_1.hn_update_coeff * src_e_y / grid_info.cell_size;
+
+        let dt_delay = (mat.n * grid_info.cell_size / MaterialConstants1D::C_0 + grid_info.dt) / 2.;
+        let dt_delay_idx = (dt_delay / grid_info.dt) as usize;
+        let src_val_idx = (val_idx + dt_delay_idx).min(source_vals.len() - 1);
+        let src_hn_x = Float::sqrt(mat.eps_r / mat.mu_r) * source_vals[src_val_idx];
+        cells[src_cell_idx].e_y -= mat.e_update_coeff * src_hn_x / grid_info.cell_size;
+
+        src.curr_idx += source_not_finished;
     }
     workgroup_memory_barrier_with_group_sync()
 }
@@ -147,6 +161,10 @@ pub struct PerfectBoundaryData {
 pub struct MaterialConstants1D {
     pub hn_update_coeff: f32,
     pub e_update_coeff: f32,
+    pub eps_r: f32,
+    pub mu_r: f32,
+    /// Refractive index
+    pub n: f32
 }
 
 impl MaterialConstants1D {
@@ -156,11 +174,16 @@ impl MaterialConstants1D {
     pub fn new(eps_r: f32, mu_r: f32, dt: f32) -> Self {
         Self {
             e_update_coeff: (Self::C_0 * dt) / eps_r,
-            hn_update_coeff: (Self::C_0 * dt) / mu_r
+            hn_update_coeff: (Self::C_0 * dt) / mu_r,
+            eps_r,
+            mu_r,
+            n: Float::sqrt(eps_r * mu_r)
         }
     }
 }
 
+/// A Total Field/Scatter Field (TF/SF) electric field source the user can inject into the
+/// simulation.
 #[derive(Copy, Clone, Pod, Zeroable)]
 #[repr(C)]
 pub struct GpuSource1D {

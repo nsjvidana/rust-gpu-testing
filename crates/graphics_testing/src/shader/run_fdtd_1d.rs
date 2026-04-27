@@ -33,10 +33,11 @@ pub async fn run_fdtd_1d(backend: &GpuBackend) {
     let pulse = GaussianPulse1D::from_max_frequency(
         max_pulse_freq,
         1.,
-        grid_info.dimensions - grid_info.dimensions/5.,
+        grid_info.dimensions/5.,
         &mut grid_info,
         20
     );
+    println!("{:?}", pulse);
 
     grid_info.set_cfl_perfect_boundary(1.);
     println!("{grid_info:?}");
@@ -250,6 +251,7 @@ pub struct Fdtd1dBuffers {
     pub grid_info: GpuBuffer<GridInfo1D>,
 }
 
+#[derive(Debug)]
 pub struct GaussianPulse1D {
     pub amplitude: f32,
     pub tau: f32,
