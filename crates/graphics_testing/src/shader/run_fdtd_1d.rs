@@ -1,18 +1,17 @@
+use crate::util::{CreateGpuBuffer, CreateGpuBufferReadable, GpuBufferReadable};
 use glam::Vec3;
 use khal::backend::{Backend, Buffer, DispatchGrid, Encoder, GpuBackend, GpuBackendError, GpuBuffer};
-use khal::{BufferUsages, Shader};
+use khal::Shader;
 use kiss3d::camera::OrbitCamera3d;
 use kiss3d::event::{Action, Key};
 use kiss3d::light::Light;
-use kiss3d::prelude::{Color, Polyline3d, Pose3, SceneNode3d, Window, GREEN, RED};
+use kiss3d::prelude::{Color, Polyline3d, SceneNode3d, Window, GREEN, RED};
 use shader_crate::fdtd_1d::{Fdtd1d, GpuSource1D, GridCell1D, GridInfo1D, MaterialConstants1D, PerfectBoundaryData};
 
 #[derive(Shader)]
 struct GpuKernels {
     pub fdtd_1d: Fdtd1d
 }
-
-// const OBJECT_WIDTH:
 
 pub async fn run_fdtd_1d(backend: &GpuBackend) {
     let max_pulse_freq = 10e6;
@@ -109,8 +108,8 @@ async fn main_render_loop(
         }
         if curr_action != prev_action && curr_action == Action::Press {
             backend.synchronize()?;
-            backend.read_buffer(&buffers.cells_read, &mut cells_out).await?;
-            backend.read_buffer(&buffers.boundary_read, &mut boundary_out).await?;
+            buffers.cells.read(backend, &mut cells_out).await?;
+            buffers.perfect_boundary_data.read(backend, &mut boundary_out).await?;
 
             submit_simulation(
                 backend,
@@ -172,29 +171,17 @@ fn submit_simulation(
         kernels.fdtd_1d.call(
             &mut pass,
             DispatchGrid::Grid([grid_info.num_cells.div_ceil(64), 1, 1]),
-            &mut buffers.cells,
+            &mut buffers.cells.buffer,
             &mut buffers.materials,
             &buffers.source_vals,
             &mut buffers.sources,
-            &mut buffers.perfect_boundary_data,
+            &mut buffers.perfect_boundary_data.buffer,
             &buffers.grid_info
         )?;
     }
     drop(pass);
-    encoder.copy_buffer_to_buffer(
-        &buffers.cells,
-        0,
-        &mut buffers.cells_read,
-        0,
-        buffers.cells.len()
-    )?;
-    encoder.copy_buffer_to_buffer(
-        &buffers.perfect_boundary_data,
-        0,
-        &mut buffers.boundary_read,
-        0,
-        buffers.perfect_boundary_data.len()
-    )?;
+    buffers.cells.encode_copy_cmd(&mut encoder)?;
+    buffers.perfect_boundary_data.encode_copy_cmd(&mut encoder)?;
     backend.submit(encoder)
 }
 
@@ -212,38 +199,13 @@ pub struct Fdtd1dData {
 impl Fdtd1dData {
     pub fn create_buffers(&self, backend: &GpuBackend) -> Result<Fdtd1dBuffers, GpuBackendError> {
         Ok(Fdtd1dBuffers {
-            cells: backend.init_buffer(
-                self.cells.as_slice(),
-                BufferUsages::STORAGE | BufferUsages::COPY_SRC,
-            )?,
-            materials: backend.init_buffer(
-                self.materials.as_slice(),
-                BufferUsages::STORAGE,
-            )?,
-            source_vals: backend.init_buffer(
-                self.source_vals.as_slice(),
-                BufferUsages::STORAGE,
-            )?,
-            sources: backend.init_buffer(
-                self.sources.as_slice(),
-                BufferUsages::STORAGE,
-            )?,
-            perfect_boundary_data: backend.init_buffer(
-                &[PerfectBoundaryData::default()],
-                BufferUsages::STORAGE | BufferUsages::COPY_SRC,
-            )?,
-            grid_info: backend.init_buffer(
-               &[self.grid_info],
-                BufferUsages::UNIFORM,
-            )?,
-            cells_read: backend.init_buffer(
-                self.cells.as_slice(),
-                BufferUsages::COPY_DST | BufferUsages::MAP_READ,
-            )?,
-            boundary_read: backend.uninit_buffer(
-                1,
-                BufferUsages::COPY_DST | BufferUsages::MAP_READ
-            )?,
+            cells: self.cells.create_gpu_buffer_readable(backend)?,
+            materials: self.materials.create_gpu_buffer(backend)?,
+            source_vals: self.source_vals.create_gpu_buffer(backend)?,
+            sources: self.sources.create_gpu_buffer(backend)?,
+            perfect_boundary_data: PerfectBoundaryData::default()
+                .create_gpu_buffer_readable(backend)?,
+            grid_info: self.grid_info.create_gpu_uniform(backend)?,
         })
     }
 
@@ -280,15 +242,12 @@ pub struct ObjectInfo1D {
 }
 
 pub struct Fdtd1dBuffers {
-    pub cells: GpuBuffer<GridCell1D>,
+    pub cells: GpuBufferReadable<GridCell1D>,
     pub materials: GpuBuffer<MaterialConstants1D>,
     pub source_vals: GpuBuffer<f32>,
     pub sources: GpuBuffer<GpuSource1D>,
-    pub perfect_boundary_data: GpuBuffer<PerfectBoundaryData>,
+    pub perfect_boundary_data: GpuBufferReadable<PerfectBoundaryData>,
     pub grid_info: GpuBuffer<GridInfo1D>,
-
-    pub cells_read: GpuBuffer<GridCell1D>,
-    pub boundary_read: GpuBuffer<PerfectBoundaryData>,
 }
 
 pub struct GaussianPulse1D {
