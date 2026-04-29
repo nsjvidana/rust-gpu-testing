@@ -93,7 +93,7 @@ impl GridInfo1D {
     }
 
     pub fn update_cell_count(&mut self) -> &mut Self {
-        self.num_cells = (self.dimensions / self.cell_size).ceil() as u32;
+        self.num_cells = (self.dimensions / self.cell_size).round() as u32;
         self
     }
 
@@ -173,12 +173,20 @@ impl MaterialConstants1D {
 
     pub fn new(eps_r: f32, mu_r: f32, dt: f32) -> Self {
         Self {
-            e_update_coeff: (Self::C_0 * dt) / eps_r,
-            hn_update_coeff: (Self::C_0 * dt) / mu_r,
+            e_update_coeff: Self::compute_e_update_coeff(eps_r, dt),
+            hn_update_coeff: Self::compute_hn_update_coeff(mu_r, dt),
             eps_r,
             mu_r,
             n: Float::sqrt(eps_r * mu_r)
         }
+    }
+
+    pub fn compute_e_update_coeff(eps_r: f32, dt: f32) -> f32 {
+        (Self::C_0 * dt) / eps_r
+    }
+
+    pub fn compute_hn_update_coeff(mu_r: f32, dt: f32) -> f32 {
+        (Self::C_0 * dt) / mu_r
     }
 }
 
@@ -189,6 +197,6 @@ impl MaterialConstants1D {
 pub struct GpuSource1D {
     pub start_idx: u32,
     pub end_idx: u32,
-    pub curr_idx: u32,
+    pub curr_idx: u32, // TODO: use global timestep counter instead (helps w/ implementing fourier transforms)
     pub cell_idx: u32,
 }
