@@ -1,4 +1,3 @@
-use std::ops::Range;
 use crate::util::{CreateGpuBuffer, CreateGpuBufferReadable, GpuBufferReadable};
 use glam::Vec3;
 use khal::backend::{Backend, Buffer, DispatchGrid, Encoder, GpuBackend, GpuBackendError, GpuBuffer};
@@ -6,8 +5,9 @@ use khal::Shader;
 use kiss3d::camera::OrbitCamera3d;
 use kiss3d::event::{Action, Key};
 use kiss3d::light::Light;
-use kiss3d::prelude::{Color, Polyline3d, SceneNode3d, Window, GREEN, RED, WHITE};
+use kiss3d::prelude::{Color, SceneNode3d, Window, GREEN, RED, WHITE};
 use shader_crate::fdtd_1d::{Fdtd1d, GpuSource1D, GridCell1D, GridInfo1D, MaterialConstants1D, PerfectBoundaryData};
+use std::ops::Range;
 
 #[derive(Shader)]
 struct GpuKernels {
@@ -16,35 +16,21 @@ struct GpuKernels {
 
 pub async fn run_fdtd_1d(backend: &GpuBackend) {
     let max_pulse_freq = 1e9;
-    let simulation_dimensions_z =  800.;
 
+    let obj_width = 0.3048; // 1ft wide
     let eps_r_mat = 6.0_f32;
     let mu_r_mat = 2.0_f32;
-    let n_mat = (eps_r_mat * mu_r_mat).sqrt();
 
-    let n_max = n_mat.max(1.);
-    let n_min = n_mat.min(1.);
-
-    let stability_values = StabilityValues {
-        spacer_region_cells: 10,
-        ..Default::default()
-    };
+    let stability_values = StabilityValues::default();
 
     let obj = ObjectInfo1D {
-        width: 0.3048, // 1ft wide
+        width: obj_width,
         position: 0.,
         material: ElectricMaterial::new(eps_r_mat, mu_r_mat),
         color: GREEN
     };
 
-    let mut _dummy_grid_info = GridInfo1D::max_values(0.); // for now just use a dummy grid info
-    let source = GaussianPulse1D::from_max_frequency(
-        max_pulse_freq,
-        1.,
-        0., // dummy position value for now
-        &mut _dummy_grid_info,
-        20
-    );
+    let source = GaussianPulse1D::from_max_frequency(max_pulse_freq, 1.);
 
     let mut data = Fdtd1dData::new();
     data
@@ -236,7 +222,6 @@ impl Fdtd1dData {
         // things like spacer regions.
         let min_pos = self.objects.iter()
             .map(|o| o.position - o.width/2.)
-            .chain(self.sources.iter().map(|s| s.location))
             .min_by(|a, b| a.total_cmp(b))
             .unwrap_or(0.);
         let max_pos = self.objects.iter()
@@ -304,7 +289,7 @@ impl Fdtd1dData {
         self.update_cell_count()
     }
 
-    /// Sets up `dt` for simulating with a perfect boundary condition.
+    /// Sets up `dt` for simulating with a Perfect Absorbing Boundary.
     ///
     /// Guarantees that the fastest wave in the simulation travels 1 grid cell in exactly
     /// two timesteps.
@@ -434,65 +419,21 @@ pub struct GaussianPulse1D {
     pub amplitude: f32,
     pub tau: f32,
     pub t_0: f32,
-    /// Location on Z axis
-    pub location: f32,
-    pub resolution: u32,
 }
 
 impl GaussianPulse1D {
     /// Create a Gaussian Pulse that has a maximum frequency of `max_frequency`
-    ///
-    /// # Simulation Stability
-    /// **HIGHLY** recommended to use [`GridInfo1D::account_for_pulse`] when using a [`GaussianPulse1D`].
-    /// Have `cells_resolution >= 10` for better results
     pub fn from_max_frequency(
         max_frequency: f32,
         amplitude: f32,
-        at_point: f32,
-        grid_info: &mut GridInfo1D,
-        cells_resolution: u32,
     ) -> Self {
         let tau = 0.5 / max_frequency;
 
-        grid_info.dt = grid_info.dt.min(tau / cells_resolution as f32);
-
-        let approx_pulse_duration = 12. * tau;
-        let resolution = (approx_pulse_duration / grid_info.dt).ceil() as u32;
         Self {
             amplitude,
             tau,
             t_0: 6. * tau,
-            location: at_point,
-            resolution
         }
-    }
-
-    pub fn add_source(
-        &self,
-        sources: &mut Vec<GpuSource1D>,
-        source_values: &mut Vec<f32>,
-        grid_info: &GridInfo1D
-    ) {
-        let mut vals = vec![0.; self.resolution as usize];
-        let mut t = 0.;
-        for i in 0..self.resolution {
-            t += grid_info.dt;
-            let g = core::f32::consts::E.powf(
-                -((t - self.t_0) / self.tau).powi(2)
-            );
-            vals[i as usize] = g * self.amplitude;
-        }
-
-        let start_idx = source_values.len() as u32;
-        source_values.extend_from_slice(&vals);
-        let end_idx = source_values.len() as u32 - 1;
-        let cell_idx = (self.location / grid_info.cell_size).round() as u32;
-        sources.push(GpuSource1D {
-            start_idx,
-            end_idx,
-            curr_idx: 0,
-            cell_idx,
-        });
     }
 
     pub fn compute_source_values(&self, sim_data: &Fdtd1dData) -> Vec<f32> {
