@@ -61,55 +61,6 @@ pub async fn run_fdtd_1d(backend: &GpuBackend) {
         .unwrap();
 
     main_render_loop(backend, data, max_src_val).await.unwrap();
-
-    return;
-
-    let mut grid_info = GridInfo1D::max_values(simulation_dimensions_z);
-    grid_info
-        .min_wavelength(max_pulse_freq, n_max, 20);
-    grid_info
-        .set_step_count(2);
-
-    let pulse = GaussianPulse1D::from_max_frequency(
-        max_pulse_freq,
-        1.,
-        grid_info.dimensions/5.,
-        &mut grid_info,
-        20
-    );
-    println!("{:?}", pulse);
-
-    grid_info.set_cfl_perfect_boundary(1.);
-    println!("{grid_info:?}");
-
-    let obj = ObjectInfo1D {
-        width: grid_info.dimensions / 10.,
-        position: grid_info.dimensions / 2.,
-        material: ElectricMaterial {
-            eps_r: eps_r_mat,
-            mu_r: mu_r_mat,
-            n: n_mat,
-        },
-        color: GREEN
-    };
-
-    let mut data = Fdtd1dData {
-        cells: vec![GridCell1D::default(); grid_info.num_cells as usize],
-        materials: vec![
-            MaterialConstants1D::new(1., 1., grid_info.dt),
-        ],
-        grid_info: grid_info.clone(),
-        ..Default::default()
-    };
-    data.add_object(obj);
-    pulse.add_source(&mut data.sources_gpu, &mut data.source_vals, &grid_info);
-    let max_src_val = data.source_vals.iter()
-        .map(|v| v.abs())
-        .max_by(|a, b| a.total_cmp(b))
-        .unwrap();
-    println!("max src val: {}", max_src_val);
-
-    main_render_loop(backend, data, max_src_val).await.unwrap();
 }
 
 async fn main_render_loop(
