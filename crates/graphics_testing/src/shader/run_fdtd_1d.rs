@@ -7,7 +7,7 @@ use kiss3d::event::{Action, Key};
 use kiss3d::light::Light;
 use kiss3d::prelude::{Color, SceneNode3d, Window, GREEN, RED, WHITE};
 use shader_crate::fdtd_1d::{Fdtd1d, GpuSource1D, GridCell1D, GridInfo1D, MaterialConstants1D, PerfectBoundaryData};
-use std::ops::Range;
+use std::ops::{Range, RangeInclusive};
 
 #[derive(Shader)]
 struct GpuKernels {
@@ -171,6 +171,8 @@ pub struct Fdtd1dData {
     pub source_vals: Vec<f32>,
     pub sources_gpu: Vec<GpuSource1D>,
     pub grid_info: GridInfo1D,
+    /// If this has a value, FFTs are enabled.
+    pub fft_data: Option<FftData>,
 
     pub objects: Vec<ObjectInfo1D>,
     /// The range of cells each object takes
@@ -183,6 +185,38 @@ impl Fdtd1dData {
             grid_info: GridInfo1D::max_values(0.),
             ..Default::default()
         }
+    }
+
+    /// Call this to enable reflectance and transmittance FFTs.
+    ///
+    /// The maximum number of timesteps must be known to call this function.
+    pub fn enable_ffts(&mut self, frequency_range: RangeInclusive<f32>, resolution: u32) -> &mut Self {
+        self.fft_data = Some(FftData {
+            frequency_range,
+            resolution
+        });
+        self
+    }
+
+    /// Estimates the number of timesteps the simulation needs to be considered "finished."
+    /// Does NOT consider the resonance of objects in the simulations.
+    ///
+    /// You can use this function's output as FFT resolution
+    pub fn estimate_max_timesteps(&mut self, custom_default_material: Option<ElectricMaterial>) -> u32 {
+        let default_mat = custom_default_material.unwrap_or(ElectricMaterial::FREE_SPACE);
+        let mut n_max = self.objects.iter()
+            .map(|o| o.material.n)
+            .max_by(|a, b| a.total_cmp(b))
+            .unwrap_or(1.);
+        n_max = n_max.max(default_mat.n);
+
+        let max_src_duration = self.sources.iter()
+            .map(|s| s.tau)
+            .max_by(|a, b| a.total_cmp(b))
+            .unwrap_or(0.) * 12.;
+        // time it takes to the slowest wave to propagate across the grid (a worst-case scenario)
+        let t_prop = n_max/MaterialConstants1D::C_0 * self.grid_info.num_cells as f32;
+        ((max_src_duration + t_prop) / self.grid_info.dt).ceil() as u32
     }
 
     pub fn prepare_for_gpu(
@@ -303,10 +337,7 @@ impl Fdtd1dData {
     }
 
     pub fn enforce_stability_conditions(&mut self, stability: &StabilityValues, n_boundary: f32) -> &mut Self {
-        let f_max = self.sources.iter()
-            .map(|g| 0.5 / g.tau)
-            .max_by(|a, b| a.total_cmp(b))
-            .expect("There must be at least one source!");
+        let f_max = self.compute_max_frequency();
         self.min_wavelength(f_max, stability.cells_per_wavelength);
         self.set_cfl_perfect_boundary(n_boundary)
     }
@@ -350,6 +381,18 @@ impl Fdtd1dData {
         let start = (center_idx - idx_width.div_ceil(2)).max(0);
         (start, idx_width)
     }
+
+    pub fn compute_max_frequency(&self) -> f32 {
+        self.sources.iter()
+            .map(|g| 0.5 / g.tau)
+            .max_by(|a, b| a.total_cmp(b))
+            .expect("There must be at least one source!")
+    }
+}
+
+pub struct FftData {
+    pub frequency_range: RangeInclusive<f32>,
+    pub resolution: u32
 }
 
 pub struct StabilityValues {
