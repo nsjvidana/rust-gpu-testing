@@ -14,13 +14,15 @@ pub fn fdtd_1d(
     #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] source_vals: &[f32],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 3)] tfsf_sources: &mut [GpuSource1D],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 4)] boundary: &mut PerfectBoundaryData,
-    #[spirv(uniform, descriptor_set = 0, binding = 5)] grid_info: &GridInfo1D,
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 5)] timestep_counter: &mut u32,
+    #[spirv(uniform, descriptor_set = 0, binding = 6)] grid_info: &GridInfo1D,
 ) {
     let idx = (id.x as usize).min(cells.len() - 1);
 
     let mat = materials[cells[idx].material_idx as usize];
     // Update Hn from E
     if idx == 0 {
+        *timestep_counter += 1;
         boundary.hn_x2 = boundary.hn_x1;
         boundary.hn_x1 = cells[idx].hn_x;
     }
@@ -89,10 +91,11 @@ pub fn compute_fft_kernels_1d(
 #[spirv(compute(threads(64)))]
 pub fn fft_1d(
     #[spirv(global_invocation_id)] id: UVec3,
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 0)] cells: &mut [GridCell1D],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 0)] cells: &[GridCell1D],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] reflectance_fft: &mut [Vec4],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] transmittance_fft: &mut [Vec4],
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 3)] fft_kernels: &mut [Vec4],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 3)] fft_kernels: &[Vec4],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 4)] timestep_counter: &u32,
 ) {
     let i0 = id.x as usize;
     if i0 >= fft_kernels.len() { return; }
@@ -100,8 +103,9 @@ pub fn fft_1d(
     let reflected = cells[0].e_y;
     let transmitted = cells[cells.len()-1].e_y;
 
-    reflectance_fft[i0] += fft_kernels[i0] * reflected;
-    transmittance_fft[i0] += fft_kernels[i0] * transmitted;
+    let count = *timestep_counter as f32;
+    reflectance_fft[i0] += fft_kernels[i0].powf(count) * reflected;
+    transmittance_fft[i0] += fft_kernels[i0].powf(count) * transmitted;
 }
 
 #[spirv_bindgen]
@@ -126,7 +130,7 @@ pub struct GridInfo1D {
     pub num_cells: u32,
     pub cell_size: f32,
     pub dt: f32,
-    pub step_count: u32,
+    pub steps_per_call: u32,
 }
 
 impl GridInfo1D {
@@ -136,7 +140,7 @@ impl GridInfo1D {
             num_cells: 0,
             cell_size: f32::MAX,
             dt: f32::MAX,
-            step_count: 1,
+            steps_per_call: 1,
         }
     }
 
@@ -187,7 +191,7 @@ impl GridInfo1D {
 
     /// Set the amount of `dt` time steps per shader dispatch.
     pub fn set_step_count(&mut self, step_count: u32) -> &mut Self {
-        self.step_count = step_count;
+        self.steps_per_call = step_count;
         self
     }
 }
@@ -257,6 +261,6 @@ impl MaterialConstants1D {
 pub struct GpuSource1D {
     pub start_idx: u32,
     pub end_idx: u32,
-    pub curr_idx: u32, // TODO: use global timestep counter instead (helps w/ implementing fourier transforms)
+    pub curr_idx: u32,
     pub cell_idx: u32,
 }

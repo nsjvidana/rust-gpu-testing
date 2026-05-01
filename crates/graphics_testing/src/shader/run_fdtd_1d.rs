@@ -1,17 +1,20 @@
 use crate::util::{CreateGpuBuffer, CreateGpuBufferReadable, GpuBufferReadable};
-use glam::Vec3;
+use glam::{Vec3, Vec4};
 use khal::backend::{Backend, Buffer, DispatchGrid, Encoder, GpuBackend, GpuBackendError, GpuBuffer};
 use khal::Shader;
 use kiss3d::camera::OrbitCamera3d;
 use kiss3d::event::{Action, Key};
 use kiss3d::light::Light;
 use kiss3d::prelude::{Color, SceneNode3d, Window, GREEN, RED, WHITE};
-use shader_crate::fdtd_1d::{Fdtd1d, GpuSource1D, GridCell1D, GridInfo1D, MaterialConstants1D, PerfectBoundaryData};
+use shader_crate::fdtd_1d::{ComputeFftKernels1d, Fdtd1d, Fft1d, FftDataGPU, FinishFft1d, GpuSource1D, GridCell1D, GridInfo1D, MaterialConstants1D, PerfectBoundaryData};
 use std::ops::{Range, RangeInclusive};
 
 #[derive(Shader)]
 struct GpuKernels {
-    pub fdtd_1d: Fdtd1d
+    pub fdtd_1d: Fdtd1d,
+    pub compute_fft_kernels: ComputeFftKernels1d,
+    pub fft: Fft1d,
+    pub finish_fft: FinishFft1d
 }
 
 pub async fn run_fdtd_1d(backend: &GpuBackend) {
@@ -38,6 +41,11 @@ pub async fn run_fdtd_1d(backend: &GpuBackend) {
         .add_source(source);
 
     data.prepare_for_gpu(&stability_values, None);
+
+    let f_res = data.estimate_max_timesteps(None);
+    let f_max = data.compute_max_frequency();
+    data.enable_ffts((-f_max)..=f_max, f_res);
+
     data.grid_info.set_step_count(1);
     println!("{:?}", data.grid_info);
 
@@ -67,7 +75,7 @@ async fn main_render_loop(
     scene.add_light(Light::point(1000.))
         .set_position(Vec3::new(1., 1., 0.));
 
-    let kernels = GpuKernels::from_backend(&backend)?;
+    let gpu_kernels = GpuKernels::from_backend(&backend)?;
     let mut buffers = data.create_buffers(backend)?;
 
     for src in data.sources_gpu.iter() {
@@ -75,6 +83,23 @@ async fn main_render_loop(
         scene.add_sphere(grid_info.cell_size / 5.)
             .translate(pos)
             .set_color(RED);
+    }
+
+    // Compute FFT kernels before running simulation
+    if let Some(fft_bufs) = &mut buffers.fft_buffers {
+        let mut encoder = backend.begin_encoding();
+        let mut pass = encoder.begin_pass("", None);
+        let dispatch_count = fft_bufs.fft_kernels.len()
+            .div_ceil(2).div_ceil(64) as u32;
+        gpu_kernels.compute_fft_kernels.call(
+            &mut pass,
+            DispatchGrid::Grid([dispatch_count, 1, 1]),
+            &mut fft_bufs.fft_kernels,
+            &mut fft_bufs.fft_data,
+            &buffers.grid_info
+        )?;
+        drop(pass);
+        backend.submit(encoder)?;
     }
 
     let mut abs_max_val = 0.;
@@ -93,7 +118,7 @@ async fn main_render_loop(
 
             submit_simulation(
                 backend,
-                &kernels,
+                &gpu_kernels,
                 &mut buffers,
                 grid_info
             )?;
@@ -133,6 +158,7 @@ async fn main_render_loop(
         }
 
         window.draw_line(Vec3::ZERO, Vec3::Z * grid_info.dimensions, WHITE, 2.0, false);
+        // TODO: visualize reflectance & transmittance
     }
     Ok(())
 }
@@ -144,8 +170,10 @@ fn submit_simulation(
     grid_info: &GridInfo1D
 ) -> Result<(), GpuBackendError> {
     let mut encoder = backend.begin_encoding();
+
+    // Compute pass
     let mut pass = encoder.begin_pass("", None);
-    for _ in 0..grid_info.step_count {
+    for _ in 0..grid_info.steps_per_call {
         kernels.fdtd_1d.call(
             &mut pass,
             DispatchGrid::Grid([grid_info.num_cells.div_ceil(64), 1, 1]),
@@ -154,12 +182,45 @@ fn submit_simulation(
             &buffers.source_vals,
             &mut buffers.sources,
             &mut buffers.perfect_boundary_data.buffer,
+            &mut buffers.timestep_counter,
+            &buffers.grid_info
+        )?;
+    }
+
+    if let Some(FftBuffers {
+        fft_kernels,
+        reflectance_fft,
+        transmittance_fft,
+        ..
+    }) = &mut buffers.fft_buffers {
+        let dispatch_count = fft_kernels.len()
+            .div_ceil(2).div_ceil(64) as u32;
+        kernels.fft.call(
+            &mut pass,
+            DispatchGrid::Grid([dispatch_count, 1, 1]),
+            &buffers.cells.buffer,
+            &mut reflectance_fft.buffer,
+            &mut transmittance_fft.buffer,
+            fft_kernels,
+            &buffers.timestep_counter
+        )?;
+        kernels.finish_fft.call(
+            &mut pass,
+            DispatchGrid::Grid([dispatch_count, 1, 1]),
+            &mut reflectance_fft.buffer,
+            &mut transmittance_fft.buffer,
             &buffers.grid_info
         )?;
     }
     drop(pass);
+
     buffers.cells.encode_copy_cmd(&mut encoder)?;
     buffers.perfect_boundary_data.encode_copy_cmd(&mut encoder)?;
+    if let Some(fft) = &mut buffers.fft_buffers {
+        fft.reflectance_fft.encode_copy_cmd(&mut encoder)?;
+        fft.transmittance_fft.encode_copy_cmd(&mut encoder)?;
+    }
+
     backend.submit(encoder)
 }
 
@@ -353,6 +414,28 @@ impl Fdtd1dData {
     }
 
     pub fn create_buffers(&self, backend: &GpuBackend) -> Result<Fdtd1dBuffers, GpuBackendError> {
+        let mut fft_buffers = None;
+        if let Some(fft) = &self.fft_data {
+            let kernel_count = fft.resolution as usize;
+            let init_fft_data = vec![Vec4::ZERO; kernel_count];
+
+            let f_start = *fft.frequency_range.start();
+            let f_end = *fft.frequency_range.end();
+
+            fft_buffers = Some(
+                FftBuffers {
+                    fft_data: FftDataGPU {
+                        f_start,
+                        f_increment: (f_end - f_start) / (fft.resolution as f32 - 1.)
+                    }.create_gpu_uniform(backend)?,
+                    fft_kernels: init_fft_data.create_gpu_buffer(backend)?,
+                    reflectance_fft: init_fft_data.create_gpu_buffer_readable(backend)?,
+                    transmittance_fft: init_fft_data.create_gpu_buffer_readable(backend)?,
+                }
+            )
+        }
+        let timestep_counter = 0;
+
         Ok(Fdtd1dBuffers {
             cells: self.cells.create_gpu_buffer_readable(backend)?,
             materials: self.materials.create_gpu_buffer(backend)?,
@@ -360,7 +443,9 @@ impl Fdtd1dData {
             sources: self.sources_gpu.create_gpu_buffer(backend)?,
             perfect_boundary_data: PerfectBoundaryData::default()
                 .create_gpu_buffer_readable(backend)?,
+            timestep_counter: timestep_counter.create_gpu_buffer(backend)?,
             grid_info: self.grid_info.create_gpu_uniform(backend)?,
+            fft_buffers
         })
     }
 
@@ -455,6 +540,16 @@ pub struct Fdtd1dBuffers {
     pub sources: GpuBuffer<GpuSource1D>,
     pub perfect_boundary_data: GpuBufferReadable<PerfectBoundaryData>,
     pub grid_info: GpuBuffer<GridInfo1D>,
+    pub timestep_counter: GpuBuffer<u32>,
+
+    pub fft_buffers: Option<FftBuffers>
+}
+
+pub struct FftBuffers {
+    pub fft_data: GpuBuffer<FftDataGPU>,
+    pub fft_kernels: GpuBuffer<Vec4>,
+    pub reflectance_fft: GpuBufferReadable<Vec4>,
+    pub transmittance_fft: GpuBufferReadable<Vec4>,
 }
 
 #[derive(Debug)]
