@@ -46,7 +46,7 @@ pub async fn run_fdtd_1d(backend: &GpuBackend) {
     let f_max = data.compute_max_frequency();
     data.enable_ffts((-f_max)..=f_max, f_res);
 
-    data.grid_info.set_step_count(1);
+    data.set_step_count(1);
     println!("{:?}", data.grid_info);
 
     let max_src_val = data.source_vals.iter()
@@ -326,7 +326,7 @@ impl Fdtd1dData {
         let dimensions = dz * 2. + // Transmittance/Reflectance cells & source cells
             dz * stability.spacer_region_cells as f32 * 2. + // Both spacer regions
             dz * ((max_pos - min_pos)/dz).abs().ceil(); // Account for objects & sources
-        self.grid_info.set_dimensions(dimensions);
+        self.set_dimensions(dimensions);
         self.cells.resize(self.grid_info.num_cells as usize, GridCell1D::default());
 
         // Set grid cell material indices
@@ -384,6 +384,17 @@ impl Fdtd1dData {
         self.update_cell_count()
     }
 
+    pub fn min_feature_length(&mut self, min_feature_length: f32, cells_per_min_len: u32) -> &mut Self {
+        self.grid_info.cell_size = self.grid_info.cell_size.min(min_feature_length / cells_per_min_len as f32);
+        self.update_cell_count()
+    }
+
+    pub fn snap_to_critical_dim(&mut self, critical_dim: f32) -> &mut Self {
+        let cells_per_crit_dim = (critical_dim / self.grid_info.cell_size).ceil();
+        self.grid_info.cell_size = critical_dim / cells_per_crit_dim;
+        self.update_cell_count()
+    }
+
     /// Sets up `dt` for simulating with a Perfect Absorbing Boundary.
     ///
     /// Guarantees that the fastest wave in the simulation travels 1 grid cell in exactly
@@ -406,6 +417,12 @@ impl Fdtd1dData {
     pub fn set_dimensions(&mut self, dimensions: f32) -> &mut Self {
         self.grid_info.dimensions = dimensions;
         self.update_cell_count()
+    }
+
+    /// Set the amount of `dt` time steps per shader dispatch.
+    pub fn set_step_count(&mut self, step_count: u32) -> &mut Self {
+        self.grid_info.steps_per_call = step_count;
+        self
     }
 
     pub fn update_cell_count(&mut self) -> &mut Self {

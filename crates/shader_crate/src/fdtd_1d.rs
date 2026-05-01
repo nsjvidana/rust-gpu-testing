@@ -143,57 +143,6 @@ impl GridInfo1D {
             steps_per_call: 1,
         }
     }
-
-    pub fn set_dimensions(&mut self, dimensions: f32) -> &mut Self {
-        self.dimensions = dimensions;
-        self.update_cell_count()
-    }
-
-    pub fn update_cell_count(&mut self) -> &mut Self {
-        self.num_cells = (self.dimensions / self.cell_size).round() as u32;
-        self
-    }
-
-    pub fn min_wavelength(&mut self, f_max: f32, n_max: f32, cells_per_wavelength: u32) -> &mut Self {
-        let min_wavelen = MaterialConstants1D::C_0 / (f_max * n_max);
-        self.cell_size = self.cell_size.min(min_wavelen / cells_per_wavelength as f32);
-        self.update_cell_count()
-    }
-
-    pub fn min_feature_length(&mut self, min_feature_length: f32, cells_per_min_len: u32) -> &mut Self {
-        self.cell_size = self.cell_size.min(min_feature_length / cells_per_min_len as f32);
-        self.update_cell_count()
-    }
-
-    pub fn snap_to_critical_dim(&mut self, critical_dim: f32) -> &mut Self {
-        let cells_per_crit_dim = (critical_dim / self.cell_size).ceil();
-        self.cell_size = critical_dim / cells_per_crit_dim;
-        self.update_cell_count()
-    }
-
-    /// Sets up `dt` for simulating with a perfect boundary condition.
-    ///
-    /// Guarantees that the fastest wave in the simulation travels 1 grid cell in exactly
-    /// two timesteps.
-    pub fn set_cfl_perfect_boundary(&mut self, n_boundary:f32) -> &mut Self {
-        self.dt = self.compute_cfl_upper_bound(n_boundary, 2.);
-        self
-    }
-
-    pub fn set_cfl_condition(&mut self, n_min: f32, safety_margin: f32) -> &mut Self {
-        self.dt = self.dt.min(self.compute_cfl_upper_bound(n_min, safety_margin));
-        self
-    }
-
-    pub fn compute_cfl_upper_bound(&self, n_min: f32, safety_margin: f32) -> f32 {
-        (n_min * self.cell_size) / (safety_margin * MaterialConstants1D::C_0)
-    }
-
-    /// Set the amount of `dt` time steps per shader dispatch.
-    pub fn set_step_count(&mut self, step_count: u32) -> &mut Self {
-        self.steps_per_call = step_count;
-        self
-    }
 }
 
 #[derive(Copy, Clone, Pod, Zeroable, Default)]
