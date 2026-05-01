@@ -8,6 +8,8 @@ use kiss3d::light::Light;
 use kiss3d::prelude::{Color, SceneNode3d, Window, GREEN, RED, WHITE};
 use shader_crate::fdtd_1d::{ComputeFftKernels1d, Fdtd1d, Fft1d, FftDataGPU, FinishFft1d, GpuSource1D, GridCell1D, GridInfo1D, MaterialConstants1D, PerfectBoundaryData};
 use std::ops::{Range, RangeInclusive};
+use kiss3d::egui;
+use kiss3d::egui::Widget;
 
 #[derive(Shader)]
 struct GpuKernels {
@@ -158,7 +160,14 @@ async fn main_render_loop(
         }
 
         window.draw_line(Vec3::ZERO, Vec3::Z * grid_info.dimensions, WHITE, 2.0, false);
+
         // TODO: visualize reflectance & transmittance
+        window.draw_ui(|ctx| {
+            egui::Window::new("Woah look at these FFTs").show(ctx, |ui| {
+                ui.label("hellooo");
+                egui::Button::new("this is definitely an fft plot").ui(ui);
+            });
+        });
     }
     Ok(())
 }
