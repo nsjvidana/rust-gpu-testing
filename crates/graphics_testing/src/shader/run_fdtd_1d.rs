@@ -1,12 +1,12 @@
 use crate::util::{CreateGpuBuffer, CreateGpuBufferReadable, GpuBufferReadable};
-use glam::{Vec3, Vec4, Vec4Swizzles};
+use glam::{Vec2, Vec3, Vec4, Vec4Swizzles};
 use khal::backend::{Backend, Buffer, DispatchGrid, Encoder, GpuBackend, GpuBackendError, GpuBuffer};
 use khal::Shader;
 use kiss3d::camera::OrbitCamera3d;
 use kiss3d::event::{Action, Key};
 use kiss3d::light::Light;
 use kiss3d::prelude::{Color, SceneNode3d, Window, GREEN, RED, WHITE};
-use shader_crate::fdtd_1d::{ComputeFftKernels1d, Fdtd1d, Fft1d, FftDataGPU, FinishFft1d, GpuSource1D, GridCell1D, GridInfo1D, MaterialConstants1D, PerfectBoundaryData};
+use shader_crate::fdtd_1d::{ComputeFftKernels1d, Fdtd1d, Fft1d, FftDataGPU, FftPlotPoint, FinishFft1d, GpuSource1D, GridCell1D, GridInfo1D, MaterialConstants1D, PerfectBoundaryData};
 use std::ops::{Range, RangeInclusive};
 use egui_plot::{Legend, Line, Plot, PlotPoint, PlotPoints};
 use kiss3d::egui;
@@ -108,6 +108,7 @@ async fn main_render_loop(
     let mut abs_max_val = 0.;
     let mut cells_out = vec![GridCell1D::default(); grid_info.num_cells as usize];
     let mut boundary_out = vec![PerfectBoundaryData::default()];
+    let mut fft_out = data.fft_data.as_ref().map(|fft| Ffts::new(fft.resolution as _));
     let mut prev_action = Action::Release;
     while window.render_3d(&mut scene, &mut camera).await {
         let curr_action = window.get_key(Key::T);
@@ -118,6 +119,11 @@ async fn main_render_loop(
             backend.synchronize()?;
             buffers.cells.read(backend, &mut cells_out).await?;
             buffers.perfect_boundary_data.read(backend, &mut boundary_out).await?;
+            if let Some(fft_out) = fft_out.as_mut() {
+                let bufs = buffers.fft_buffers.as_ref().unwrap();
+                bufs.reflectance_fft.read(backend, &mut fft_out.reflectance).await?;
+                bufs.transmittance_fft.read(backend, &mut fft_out.transmittance).await?;
+            }
 
             submit_simulation(
                 backend,
@@ -163,10 +169,10 @@ async fn main_render_loop(
         window.draw_line(Vec3::ZERO, Vec3::Z * grid_info.dimensions, WHITE, 2.0, false);
 
         // TODO: visualize reflectance & transmittance
-        if let Some(fft_bufs) = &buffers.fft_buffers {
+        if let Some(fft_out) = &fft_out {
             window.draw_ui(|ctx| {
                 egui::Window::new("Reflectance and Transmittance").show(ctx, |ui| {
-                    fft_ui(ui);
+                    fft_ui(fft_out, data.fft_data.as_ref().unwrap(), ui);
                 });
             });
         }
@@ -235,13 +241,34 @@ fn submit_simulation(
     backend.submit(encoder)
 }
 
-fn fft_ui(ui: &mut egui::Ui) {
+fn fft_ui(ffts: &Ffts, fft_data: &FftData, ui: &mut egui::Ui) {
+    let f_start = *fft_data.frequency_range.start() as f64;
+    let f_end = *fft_data.frequency_range.end() as f64;
+    let f_incr = fft_data.f_increment as f64;
     Plot::new("FFTs")
         .legend(Legend::default())
         .show(ui, |plot| {
-            // plot.line(Line::new("Reflectance", PlotPoints::Borrowed(&ffts.reflectance)));
+            plot.set_plot_bounds_x(f_start..=f_end);
+            let vals = ffts.reflectance.iter().enumerate()
+                .map(|(i, fft)| PlotPoint::from([f_start + f_incr * i as f64, fft.f as f64]))
+                .collect::<Vec<_>>();
+            plot.line(Line::new("Reflectance", PlotPoints::Owned(vals)));
         });
 
+}
+
+pub struct Ffts {
+    pub reflectance: Vec<FftPlotPoint>,
+    pub transmittance: Vec<FftPlotPoint>,
+}
+
+impl Ffts {
+    pub fn new(resolution: usize) -> Self {
+        Self {
+            reflectance: vec![FftPlotPoint::default(); resolution],
+            transmittance: vec![FftPlotPoint::default(); resolution],
+        }
+    }
 }
 
 #[derive(Default)]
@@ -272,10 +299,7 @@ impl Fdtd1dData {
     ///
     /// The maximum number of timesteps must be known to call this function.
     pub fn enable_ffts(&mut self, frequency_range: RangeInclusive<f32>, resolution: u32) -> &mut Self {
-        self.fft_data = Some(FftData {
-            frequency_range,
-            resolution
-        });
+        self.fft_data = Some(FftData::new(frequency_range, resolution));
         self
     }
 
@@ -454,7 +478,8 @@ impl Fdtd1dData {
         let mut fft_buffers = None;
         if let Some(fft) = &self.fft_data {
             let kernel_count = fft.resolution.div_ceil(2) as usize;
-            let init_fft_data = vec![Vec4::ZERO; kernel_count];
+            let init_fft_kernels = vec![Vec2::ZERO; kernel_count];
+            let init_fft_data = vec![FftPlotPoint::default(); kernel_count];
 
             let f_start = *fft.frequency_range.start();
             let f_end = *fft.frequency_range.end();
@@ -463,9 +488,9 @@ impl Fdtd1dData {
                 FftBuffers {
                     fft_data: FftDataGPU {
                         f_start,
-                        f_increment: (f_end - f_start) / (fft.resolution as f32 - 1.)
+                        f_increment: fft.f_increment
                     }.create_gpu_uniform(backend)?,
-                    fft_kernels: init_fft_data.create_gpu_buffer(backend)?,
+                    fft_kernels: init_fft_kernels.create_gpu_buffer(backend)?,
                     reflectance_fft: init_fft_data.create_gpu_buffer_readable(backend)?,
                     transmittance_fft: init_fft_data.create_gpu_buffer_readable(backend)?,
                 }
@@ -514,7 +539,22 @@ impl Fdtd1dData {
 
 pub struct FftData {
     pub frequency_range: RangeInclusive<f32>,
-    pub resolution: u32
+    pub resolution: u32,
+    pub f_increment: f32
+}
+
+impl FftData {
+    pub fn new(frequency_range: RangeInclusive<f32>, resolution: u32) -> Self {
+        Self {
+            f_increment: Self::compute_f_increment(&frequency_range, resolution),
+            frequency_range,
+            resolution,
+        }
+    }
+
+    pub fn compute_f_increment(f_range: &RangeInclusive<f32>, resolution: u32) -> f32 {
+        (f_range.end() - f_range.start()) / (resolution as f32 - 1.)
+    }
 }
 
 pub struct StabilityValues {
@@ -584,9 +624,9 @@ pub struct Fdtd1dBuffers {
 
 pub struct FftBuffers {
     pub fft_data: GpuBuffer<FftDataGPU>,
-    pub fft_kernels: GpuBuffer<Vec4>,
-    pub reflectance_fft: GpuBufferReadable<Vec4>,
-    pub transmittance_fft: GpuBufferReadable<Vec4>,
+    pub fft_kernels: GpuBuffer<Vec2>,
+    pub reflectance_fft: GpuBufferReadable<FftPlotPoint>,
+    pub transmittance_fft: GpuBufferReadable<FftPlotPoint>,
 }
 
 #[derive(Debug)]

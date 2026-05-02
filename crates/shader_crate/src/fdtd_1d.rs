@@ -72,19 +72,17 @@ pub fn fdtd_1d(
 #[spirv(compute(threads(64)))]
 pub fn compute_fft_kernels_1d(
     #[spirv(global_invocation_id)] id: UVec3,
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 0)] fft_kernels: &mut [Vec4],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 0)] fft_kernels: &mut [Vec2],
     #[spirv(uniform, descriptor_set = 0, binding = 1)] fft: &FftDataGPU,
     #[spirv(uniform, descriptor_set = 0, binding = 2)] grid: &GridInfo1D,
 ) {
     let i = id.x as usize;
     if i >= fft_kernels.len() { return; }
 
-    let f0 = fft.f_start + fft.f_increment * i as f32;
-    let f1 = f0 + fft.f_increment;
+    let f = fft.f_start + fft.f_increment * i as f32;
 
-    let (f0_im, f0_re) = Float::sin_cos(-core::f32::consts::TAU * f0 * grid.dt);
-    let (f1_im, f1_re) = Float::sin_cos(-core::f32::consts::TAU * f1 * grid.dt);
-    fft_kernels[i] = Vec4::new(f0_re, f0_im, f1_re, f1_im);
+    let (f_im, f_re) = Float::sin_cos(-core::f32::consts::TAU * f * grid.dt);
+    fft_kernels[i] = Vec2::new(f_re, f_im);
 }
 
 #[spirv_bindgen]
@@ -92,35 +90,43 @@ pub fn compute_fft_kernels_1d(
 pub fn fft_1d(
     #[spirv(global_invocation_id)] id: UVec3,
     #[spirv(storage_buffer, descriptor_set = 0, binding = 0)] cells: &[GridCell1D],
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] reflectance_fft: &mut [Vec4],
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] transmittance_fft: &mut [Vec4],
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 3)] fft_kernels: &[Vec4],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] reflectance_fft: &mut [FftPlotPoint],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] transmittance_fft: &mut [FftPlotPoint],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 3)] fft_kernels: &[Vec2],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 4)] timestep_counter: &u32,
 ) {
-    let i0 = id.x as usize;
-    if i0 >= fft_kernels.len() { return; }
+    let i = id.x as usize;
+    if i >= fft_kernels.len() { return; }
 
     let reflected = cells[0].e_y;
     let transmitted = cells[cells.len()-1].e_y;
 
     let count = *timestep_counter as f32;
-    reflectance_fft[i0] += fft_kernels[i0].powf(count) * reflected;
-    transmittance_fft[i0] += fft_kernels[i0].powf(count) * transmitted;
+    reflectance_fft[i].complex += fft_kernels[i].powf(count) * reflected;
+    transmittance_fft[i].complex += fft_kernels[i].powf(count) * transmitted;
 }
 
 #[spirv_bindgen]
 #[spirv(compute(threads(64)))]
 pub fn finish_fft_1d(
     #[spirv(global_invocation_id)] id: UVec3,
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 0)] reflectance_fft: &mut [Vec4],
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] transmittance_fft: &mut [Vec4],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 0)] reflectance_fft: &mut [FftPlotPoint],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] transmittance_fft: &mut [FftPlotPoint],
     #[spirv(uniform, descriptor_set = 0, binding = 2)] grid: &GridInfo1D,
 ) {
     let i = id.x as usize;
     if i >= reflectance_fft.len() { return; }
 
-    reflectance_fft[i] *= grid.dt;
-    transmittance_fft[i] *= grid.dt;
+    reflectance_fft[i].complex *= grid.dt;
+    transmittance_fft[i].complex *= grid.dt;
+    let r_complex = reflectance_fft[i].complex;
+    let t_complex = transmittance_fft[i].complex;
+
+    reflectance_fft[i].f = r_complex.length();
+    transmittance_fft[i].f = t_complex.length();
+
+    reflectance_fft[i].phase = Float::atan(r_complex.y / r_complex.x);
+    transmittance_fft[i].phase = Float::atan(t_complex.y / t_complex.x);
 }
 
 #[derive(Copy, Clone, Pod, Zeroable, Default, Debug)]
@@ -158,6 +164,14 @@ pub struct GridCell1D {
 pub struct FftDataGPU {
     pub f_start: f32,
     pub f_increment: f32,
+}
+
+#[derive(Copy, Clone, Pod, Zeroable, Default)]
+#[repr(C)]
+pub struct FftPlotPoint {
+    pub complex: Vec2,
+    pub f: f32,
+    pub phase: f32,
 }
 
 #[derive(Copy, Clone, Pod, Zeroable, Default)]
