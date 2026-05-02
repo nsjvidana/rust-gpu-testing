@@ -1,16 +1,16 @@
 use crate::util::{CreateGpuBuffer, CreateGpuBufferReadable, GpuBufferReadable};
-use glam::{Vec2, Vec3, Vec4, Vec4Swizzles};
+use glam::{Vec2, Vec3};
 use khal::backend::{Backend, Buffer, DispatchGrid, Encoder, GpuBackend, GpuBackendError, GpuBuffer};
 use khal::Shader;
 use kiss3d::camera::OrbitCamera3d;
 use kiss3d::event::{Action, Key};
 use kiss3d::light::Light;
 use kiss3d::prelude::{Color, SceneNode3d, Window, GREEN, RED, WHITE};
-use shader_crate::fdtd_1d::{ComputeFftKernels1d, Fdtd1d, Fft1d, FftDataGPU, FftPlotPoint, FinishFft1d, GpuSource1D, GridCell1D, GridInfo1D, MaterialConstants1D, PerfectBoundaryData};
+use shader_crate::fdtd_1d::{ComputeFftKernels1d, Fdtd1d, Fft1d, FftDataGPU, FinishFft1d, GpuSource1D, GridCell1D, GridInfo1D, MaterialConstants1D, PerfectBoundaryData};
 use std::ops::{Range, RangeInclusive};
 use egui_plot::{Legend, Line, Plot, PlotPoint, PlotPoints};
 use kiss3d::egui;
-use kiss3d::egui::Widget;
+use shader_crate::GpuComplexPolar;
 
 #[derive(Shader)]
 struct GpuKernels {
@@ -45,7 +45,8 @@ pub async fn run_fdtd_1d(backend: &GpuBackend) {
 
     data.prepare_for_gpu(&stability_values, None);
 
-    let f_res = data.estimate_max_timesteps(None) / 10;
+    let mut f_res = data.estimate_max_timesteps(None);
+        if f_res % 2 == 0 { f_res -= 1; }
     let f_max = data.compute_max_frequency();
     data.enable_ffts((-f_max)..=f_max, f_res);
 
@@ -92,8 +93,7 @@ async fn main_render_loop(
     if let Some(fft_bufs) = &mut buffers.fft_buffers {
         let mut encoder = backend.begin_encoding();
         let mut pass = encoder.begin_pass("", None);
-        let dispatch_count = fft_bufs.fft_kernels.len()
-            .div_ceil(2).div_ceil(64) as u32;
+        let dispatch_count = fft_bufs.fft_kernels.len().div_ceil(64) as u32;
         gpu_kernels.compute_fft_kernels.call(
             &mut pass,
             DispatchGrid::Grid([dispatch_count, 1, 1]),
@@ -110,6 +110,7 @@ async fn main_render_loop(
     let mut boundary_out = vec![PerfectBoundaryData::default()];
     let mut fft_out = data.fft_data.as_ref().map(|fft| Ffts::new(fft.resolution as _));
     let mut prev_action = Action::Release;
+    let mut fft_plot = fft_out.as_ref().map(|f| FftPlot::new(&f));
     while window.render_3d(&mut scene, &mut camera).await {
         let curr_action = window.get_key(Key::T);
         if window.get_key(Key::LControl) != Action::Press {
@@ -172,7 +173,8 @@ async fn main_render_loop(
         if let Some(fft_out) = &fft_out {
             window.draw_ui(|ctx| {
                 egui::Window::new("Reflectance and Transmittance").show(ctx, |ui| {
-                    fft_ui(fft_out, data.fft_data.as_ref().unwrap(), ui);
+                    fft_plot.as_mut().unwrap()
+                        .fft_ui(fft_out, data.fft_data.as_ref().unwrap(), ui);
                 });
             });
         }
@@ -210,8 +212,7 @@ fn submit_simulation(
         transmittance_fft,
         ..
     }) = &mut buffers.fft_buffers {
-        let dispatch_count = fft_kernels.len()
-            .div_ceil(2).div_ceil(64) as u32;
+        let dispatch_count = fft_kernels.len().div_ceil(64) as u32;
         kernels.fft.call(
             &mut pass,
             DispatchGrid::Grid([dispatch_count, 1, 1]),
@@ -241,32 +242,58 @@ fn submit_simulation(
     backend.submit(encoder)
 }
 
-fn fft_ui(ffts: &Ffts, fft_data: &FftData, ui: &mut egui::Ui) {
-    let f_start = *fft_data.frequency_range.start() as f64;
-    let f_end = *fft_data.frequency_range.end() as f64;
-    let f_incr = fft_data.f_increment as f64;
-    Plot::new("FFTs")
-        .legend(Legend::default())
-        .show(ui, |plot| {
-            plot.set_plot_bounds_x(f_start..=f_end);
-            let vals = ffts.reflectance.iter().enumerate()
-                .map(|(i, fft)| PlotPoint::from([f_start + f_incr * i as f64, fft.f as f64]))
-                .collect::<Vec<_>>();
-            plot.line(Line::new("Reflectance", PlotPoints::Owned(vals)));
-        });
+pub struct FftPlot {
+    pub reflectance: Vec<PlotPoint>,
+    pub transmittance: Vec<PlotPoint>,
+    pub prev_pointer_coords: Option<PlotPoint>,
+}
 
+impl FftPlot {
+    fn new(ffts: &Ffts) -> Self {
+        let vals_count = ffts.reflectance.len();
+        let fft_vals = vec![PlotPoint::new(0, 0); vals_count];
+        Self {
+            transmittance: fft_vals.clone(),
+            reflectance: fft_vals,
+            prev_pointer_coords: None,
+        }
+    }
+    fn fft_ui(&mut self, ffts: &Ffts, fft_data: &FftData, ui: &mut egui::Ui) {
+        let f_start = *fft_data.frequency_range.start() as f64;
+        let f_end = *fft_data.frequency_range.end() as f64;
+        let f_incr = fft_data.f_increment as f64;
+        let coords_txt = self.prev_pointer_coords
+            .map(|p| format!("x: {}, y: {}", p.x, p.y))
+            .unwrap_or("None".to_string());
+        ui.label(format!("Pointer Coords: {coords_txt}"));
+        Plot::new("FFTs")
+            .legend(Legend::default())
+            .show(ui, |plot| {
+                plot.set_plot_bounds_x(f_start..=f_end);
+                self.prev_pointer_coords = plot.pointer_coordinate();
+
+                for (i, fft) in ffts.reflectance.iter().enumerate() {
+                    self.reflectance[i] = PlotPoint::new(f_start + f_incr * i as f64, fft.r as f64);
+                }
+                for (i, fft) in ffts.transmittance.iter().enumerate() {
+                    self.transmittance[i] = PlotPoint::new(f_start + f_incr * i as f64, fft.r as f64);
+                }
+                plot.line(Line::new("Reflectance", PlotPoints::Borrowed(&self.reflectance)));
+                plot.line(Line::new("Transmittance", PlotPoints::Borrowed(&self.transmittance)));
+            });
+    }
 }
 
 pub struct Ffts {
-    pub reflectance: Vec<FftPlotPoint>,
-    pub transmittance: Vec<FftPlotPoint>,
+    pub reflectance: Vec<GpuComplexPolar>,
+    pub transmittance: Vec<GpuComplexPolar>,
 }
 
 impl Ffts {
     pub fn new(resolution: usize) -> Self {
         Self {
-            reflectance: vec![FftPlotPoint::default(); resolution],
-            transmittance: vec![FftPlotPoint::default(); resolution],
+            reflectance: vec![GpuComplexPolar::default(); resolution],
+            transmittance: vec![GpuComplexPolar::default(); resolution],
         }
     }
 }
@@ -454,8 +481,9 @@ impl Fdtd1dData {
 
     pub fn enforce_stability_conditions(&mut self, stability: &StabilityValues, n_boundary: f32) -> &mut Self {
         let f_max = self.compute_max_frequency();
-        self.min_wavelength(f_max, stability.cells_per_wavelength);
-        self.set_cfl_perfect_boundary(n_boundary)
+        self.min_wavelength(f_max, stability.cells_per_wavelength)
+            .set_cfl_perfect_boundary(n_boundary);
+        self
     }
 
     pub fn set_dimensions(&mut self, dimensions: f32) -> &mut Self {
@@ -477,13 +505,11 @@ impl Fdtd1dData {
     pub fn create_buffers(&self, backend: &GpuBackend) -> Result<Fdtd1dBuffers, GpuBackendError> {
         let mut fft_buffers = None;
         if let Some(fft) = &self.fft_data {
-            let kernel_count = fft.resolution.div_ceil(2) as usize;
-            let init_fft_kernels = vec![Vec2::ZERO; kernel_count];
-            let init_fft_data = vec![FftPlotPoint::default(); kernel_count];
+            let kernel_count = fft.resolution as usize;
+            let init_fft_kernels = vec![GpuComplexPolar::default(); kernel_count];
+            let init_fft_data = vec![GpuComplexPolar::default(); kernel_count];
 
             let f_start = *fft.frequency_range.start();
-            let f_end = *fft.frequency_range.end();
-
             fft_buffers = Some(
                 FftBuffers {
                     fft_data: FftDataGPU {
@@ -624,9 +650,9 @@ pub struct Fdtd1dBuffers {
 
 pub struct FftBuffers {
     pub fft_data: GpuBuffer<FftDataGPU>,
-    pub fft_kernels: GpuBuffer<Vec2>,
-    pub reflectance_fft: GpuBufferReadable<FftPlotPoint>,
-    pub transmittance_fft: GpuBufferReadable<FftPlotPoint>,
+    pub fft_kernels: GpuBuffer<GpuComplexPolar>,
+    pub reflectance_fft: GpuBufferReadable<GpuComplexPolar>,
+    pub transmittance_fft: GpuBufferReadable<GpuComplexPolar>,
 }
 
 #[derive(Debug)]

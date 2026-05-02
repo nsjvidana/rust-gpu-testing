@@ -1,6 +1,8 @@
 #![cfg_attr(target_arch = "spirv", no_std)]
 
-use khal_std::glamx::UVec3;
+use khal_std::glamx::{UVec3, Vec2};
+use bytemuck::{Pod, Zeroable};
+use khal_std::num_traits::Float;
 
 pub mod fdtd_1d;
 pub mod fdtd_3d;
@@ -29,4 +31,69 @@ pub fn vector_to_flat_idx(v: UVec3, grid_dim: UVec3) -> u32 {
     v.z * grid_dim.x * grid_dim.y +
         v.y * grid_dim.x +
         v.x
+}
+
+/// A complex number in polar coordinates
+#[derive(Copy, Clone, Pod, Zeroable, Default)]
+#[repr(C)]
+pub struct GpuComplexPolar {
+    pub r: f32,
+    pub theta: f32,
+}
+
+impl GpuComplexPolar {
+    /// Raise this complex number to power `n` using DeMoivre's Theorem
+    pub fn powf(self, n: f32) -> Self {
+        Self {
+            r: self.r.powf(n),
+            theta: self.theta * n,
+        }
+    }
+}
+
+impl Into<Vec2> for GpuComplexPolar {
+    fn into(self) -> Vec2 {
+        let (im_n, re_n) = Float::sin_cos(self.theta);
+        self.r * Vec2::new(re_n, im_n)
+    }
+}
+
+impl From<Vec2> for GpuComplexPolar {
+    fn from(vec: Vec2) -> Self {
+        let theta = Float::atan2(vec.y, vec.x);
+        let r = vec.length();
+        Self { r, theta }
+    }
+}
+
+impl core::ops::AddAssign for GpuComplexPolar {
+    fn add_assign(&mut self, rhs: Self) {
+        *self = *self + rhs
+    }
+}
+
+impl core::ops::Add for GpuComplexPolar {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self::Output {
+        let self_v: Vec2 = self.into();
+        let rhs_v: Vec2 = rhs.into();
+
+        Self::from(self_v + rhs_v)
+    }
+}
+
+impl core::ops::MulAssign<f32> for GpuComplexPolar {
+    fn mul_assign(&mut self, rhs: f32) {
+        *self = *self * rhs
+    }
+}
+
+impl core::ops::Mul<f32> for GpuComplexPolar {
+    type Output = GpuComplexPolar;
+    fn mul(self, rhs: f32) -> Self::Output {
+        Self {
+            r: self.r * rhs,
+            theta: self.theta,
+        }
+    }
 }
