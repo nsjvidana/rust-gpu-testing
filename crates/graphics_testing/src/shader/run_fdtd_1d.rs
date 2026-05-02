@@ -1,5 +1,5 @@
 use crate::util::{CreateGpuBuffer, CreateGpuBufferReadable, GpuBufferReadable};
-use glam::{Vec3, Vec4};
+use glam::{Vec3, Vec4, Vec4Swizzles};
 use khal::backend::{Backend, Buffer, DispatchGrid, Encoder, GpuBackend, GpuBackendError, GpuBuffer};
 use khal::Shader;
 use kiss3d::camera::OrbitCamera3d;
@@ -8,6 +8,7 @@ use kiss3d::light::Light;
 use kiss3d::prelude::{Color, SceneNode3d, Window, GREEN, RED, WHITE};
 use shader_crate::fdtd_1d::{ComputeFftKernels1d, Fdtd1d, Fft1d, FftDataGPU, FinishFft1d, GpuSource1D, GridCell1D, GridInfo1D, MaterialConstants1D, PerfectBoundaryData};
 use std::ops::{Range, RangeInclusive};
+use egui_plot::{Legend, Line, Plot, PlotPoint, PlotPoints};
 use kiss3d::egui;
 use kiss3d::egui::Widget;
 
@@ -44,7 +45,7 @@ pub async fn run_fdtd_1d(backend: &GpuBackend) {
 
     data.prepare_for_gpu(&stability_values, None);
 
-    let f_res = data.estimate_max_timesteps(None);
+    let f_res = data.estimate_max_timesteps(None) / 10;
     let f_max = data.compute_max_frequency();
     data.enable_ffts((-f_max)..=f_max, f_res);
 
@@ -162,12 +163,13 @@ async fn main_render_loop(
         window.draw_line(Vec3::ZERO, Vec3::Z * grid_info.dimensions, WHITE, 2.0, false);
 
         // TODO: visualize reflectance & transmittance
-        window.draw_ui(|ctx| {
-            egui::Window::new("Woah look at these FFTs").show(ctx, |ui| {
-                ui.label("hellooo");
-                egui::Button::new("this is definitely an fft plot").ui(ui);
+        if let Some(fft_bufs) = &buffers.fft_buffers {
+            window.draw_ui(|ctx| {
+                egui::Window::new("Reflectance and Transmittance").show(ctx, |ui| {
+                    fft_ui(ui);
+                });
             });
-        });
+        }
     }
     Ok(())
 }
@@ -231,6 +233,15 @@ fn submit_simulation(
     }
 
     backend.submit(encoder)
+}
+
+fn fft_ui(ui: &mut egui::Ui) {
+    Plot::new("FFTs")
+        .legend(Legend::default())
+        .show(ui, |plot| {
+            // plot.line(Line::new("Reflectance", PlotPoints::Borrowed(&ffts.reflectance)));
+        });
+
 }
 
 #[derive(Default)]
@@ -442,7 +453,7 @@ impl Fdtd1dData {
     pub fn create_buffers(&self, backend: &GpuBackend) -> Result<Fdtd1dBuffers, GpuBackendError> {
         let mut fft_buffers = None;
         if let Some(fft) = &self.fft_data {
-            let kernel_count = fft.resolution as usize;
+            let kernel_count = fft.resolution.div_ceil(2) as usize;
             let init_fft_data = vec![Vec4::ZERO; kernel_count];
 
             let f_start = *fft.frequency_range.start();
