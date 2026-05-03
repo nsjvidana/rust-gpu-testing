@@ -109,7 +109,6 @@ async fn main_render_loop(
     let mut boundary_out = vec![PerfectBoundaryData::default()];
     let mut fft_out = data.fft_data.as_ref().map(|fft| Ffts::new(fft.resolution as _));
     let mut prev_action = Action::Release;
-    let mut fft_plot = fft_out.as_ref().map(|f| FftPlot::new(&f));
     while window.render_3d(&mut scene, &mut camera).await {
         let curr_action = window.get_key(Key::T);
         if window.get_key(Key::LControl) != Action::Press {
@@ -169,11 +168,10 @@ async fn main_render_loop(
 
         window.draw_line(Vec3::ZERO, Vec3::Z * grid_info.dimensions, WHITE, 2.0, false);
 
-        if let Some(fft_out) = &fft_out {
+        if let Some(fft_out) = &mut fft_out {
             window.draw_ui(|ctx| {
                 egui::Window::new("Reflectance and Transmittance").show(ctx, |ui| {
-                    fft_plot.as_mut().unwrap()
-                        .fft_ui(fft_out, data.fft_data.as_ref().unwrap(), ui);
+                    fft_out.fft_ui(data.fft_data.as_ref().unwrap(), ui);
                 });
             });
         }
@@ -246,56 +244,11 @@ fn submit_simulation(
     backend.submit(encoder)
 }
 
-pub struct FftPlot {
-    pub reflectance: Vec<PlotPoint>,
-    pub transmittance: Vec<PlotPoint>,
-    pub prev_pointer_coords: Option<PlotPoint>,
-}
-
-impl FftPlot {
-    fn new(ffts: &Ffts) -> Self {
-        let vals_count = ffts.reflectance.len();
-        let fft_vals = vec![PlotPoint::new(0, 0); vals_count];
-        Self {
-            transmittance: fft_vals.clone(),
-            reflectance: fft_vals,
-            prev_pointer_coords: None,
-        }
-    }
-    fn fft_ui(&mut self, ffts: &Ffts, fft_data: &FftData, ui: &mut egui::Ui) {
-        let f_start = *fft_data.frequency_range.start() as f64;
-        let f_end = *fft_data.frequency_range.end() as f64;
-        let f_incr = fft_data.f_increment as f64;
-        let coords_txt = self.prev_pointer_coords
-            .map(|p| format!("x: {}, y: {}", p.x, p.y))
-            .unwrap_or("None".to_string());
-        ui.label(format!("Pointer Coords: {coords_txt}"));
-        Plot::new("FFTs")
-            .legend(Legend::default())
-            .show(ui, |plot| {
-                plot.set_plot_bounds_x(f_start..=f_end);
-                self.prev_pointer_coords = plot.pointer_coordinate();
-
-                for (i, fft) in ffts.reflectance.iter().enumerate() {
-                    let src = ffts.source[i].r + (ffts.source[i].r == 0.) as u32 as f32;
-                    let a = (fft.r / src).powi(2) as f64;
-                    self.reflectance[i] = PlotPoint::new(f_start + f_incr * i as f64, a);
-                }
-                for (i, fft) in ffts.transmittance.iter().enumerate() {
-                    let src = ffts.source[i].r + (ffts.source[i].r == 0.) as u32 as f32;
-                    let a = (fft.r / src).powi(2) as f64;
-                    self.transmittance[i] = PlotPoint::new(f_start + f_incr * i as f64, a);
-                }
-                plot.line(Line::new("Reflectance", PlotPoints::Borrowed(&self.reflectance)));
-                plot.line(Line::new("Transmittance", PlotPoints::Borrowed(&self.transmittance)));
-            });
-    }
-}
-
 pub struct Ffts {
     pub reflectance: Vec<GpuComplexPolar>,
     pub transmittance: Vec<GpuComplexPolar>,
     pub source: Vec<GpuComplexPolar>,
+    pub plot: FftPlot
 }
 
 impl Ffts {
@@ -304,6 +257,54 @@ impl Ffts {
             reflectance: vec![GpuComplexPolar::default(); resolution],
             transmittance: vec![GpuComplexPolar::default(); resolution],
             source: vec![GpuComplexPolar::default(); resolution],
+            plot: FftPlot::new(resolution)
+        }
+    }
+
+    pub fn fft_ui(&mut self, fft_data: &FftData, ui: &mut egui::Ui) {
+        let plot = &mut self.plot;
+        let f_start = *fft_data.frequency_range.start() as f64;
+        let f_end = *fft_data.frequency_range.end() as f64;
+        let f_incr = fft_data.f_increment as f64;
+        let coords_txt = plot.prev_pointer_coords
+            .map(|p| format!("x: {}, y: {}", p.x, p.y))
+            .unwrap_or("None".to_string());
+        ui.label(format!("Pointer Coords: {coords_txt}"));
+        Plot::new("FFTs")
+            .legend(Legend::default())
+            .show(ui, |plot_ui| {
+                plot_ui.set_plot_bounds_x(f_start..=f_end);
+                plot.prev_pointer_coords = plot_ui.pointer_coordinate();
+
+                for (i, fft) in self.reflectance.iter().enumerate() {
+                    let src = self.source[i].r + (self.source[i].r == 0.) as u32 as f32;
+                    let a = (fft.r / src).powi(2) as f64;
+                    plot.reflectance[i] = PlotPoint::new(f_start + f_incr * i as f64, a);
+                }
+                for (i, fft) in self.transmittance.iter().enumerate() {
+                    let src = self.source[i].r + (self.source[i].r == 0.) as u32 as f32;
+                    let a = (fft.r / src).powi(2) as f64;
+                    plot.transmittance[i] = PlotPoint::new(f_start + f_incr * i as f64, a);
+                }
+                plot_ui.line(Line::new("Reflectance", PlotPoints::Borrowed(&plot.reflectance)));
+                plot_ui.line(Line::new("Transmittance", PlotPoints::Borrowed(&plot.transmittance)));
+            });
+    }
+}
+
+pub struct FftPlot {
+    pub reflectance: Vec<PlotPoint>,
+    pub transmittance: Vec<PlotPoint>,
+    pub prev_pointer_coords: Option<PlotPoint>,
+}
+
+impl FftPlot {
+    fn new(resolution: usize) -> Self {
+        let fft_vals = vec![PlotPoint::new(0, 0); resolution];
+        Self {
+            transmittance: fft_vals.clone(),
+            reflectance: fft_vals,
+            prev_pointer_coords: None,
         }
     }
 }
