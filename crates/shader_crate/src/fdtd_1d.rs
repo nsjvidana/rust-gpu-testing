@@ -88,20 +88,23 @@ pub fn fft_1d(
     #[spirv(storage_buffer, descriptor_set = 0, binding = 0)] cells: &[GridCell1D],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] reflectance_fft: &mut [GpuComplexPolar],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] transmittance_fft: &mut [GpuComplexPolar],
-    // TODO: Add source_fft and only have support for one source.
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 3)] fft_kernels: &[GpuComplexPolar],
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 4)] timestep_counter: &u32,
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 3)] source_fft: &mut [GpuComplexPolar],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 4)] source: &GpuSource1D,
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 5)] fft_kernels: &[GpuComplexPolar],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 6)] timestep_counter: &u32,
 ) {
     let i = id.x as usize;
     if i >= fft_kernels.len() { return; }
 
     let reflected = cells[0].e_y;
     let transmitted = cells[cells.len()-1].e_y;
+    let source = cells[source.cell_idx as usize].e_y;
 
     let count = *timestep_counter as f32;
     let k = fft_kernels[i].powf(count);
     reflectance_fft[i] += k * reflected;
     transmittance_fft[i] += k * transmitted;
+    source_fft[i] += k * source;
 }
 
 #[spirv_bindgen]
@@ -110,13 +113,15 @@ pub fn finish_fft_1d(
     #[spirv(global_invocation_id)] id: UVec3,
     #[spirv(storage_buffer, descriptor_set = 0, binding = 0)] reflectance_fft: &mut [GpuComplexPolar],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] transmittance_fft: &mut [GpuComplexPolar],
-    #[spirv(uniform, descriptor_set = 0, binding = 2)] grid: &GridInfo1D,
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] source_fft: &mut [GpuComplexPolar],
+    #[spirv(uniform, descriptor_set = 0, binding = 3)] grid: &GridInfo1D,
 ) {
     let i = id.x as usize;
     if i >= reflectance_fft.len() { return; }
 
     reflectance_fft[i] *= grid.dt;
     transmittance_fft[i] *= grid.dt;
+    source_fft[i] *= grid.dt;
 }
 
 #[derive(Copy, Clone, Pod, Zeroable, Default, Debug)]
