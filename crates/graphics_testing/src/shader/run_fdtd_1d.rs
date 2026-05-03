@@ -50,7 +50,7 @@ pub async fn run_fdtd_1d(backend: &GpuBackend) {
     let f_max = data.compute_max_frequency();
     data.enable_ffts((-f_max)..=f_max, f_res);
 
-    data.set_step_count(1);
+    data.set_step_count(10);
     println!("{:?}", data.grid_info);
 
     let max_src_val = data.source_vals.iter()
@@ -204,31 +204,31 @@ fn submit_simulation(
             &mut buffers.timestep_counter,
             &buffers.grid_info
         )?;
-    }
 
-    if let Some(FftBuffers {
-        fft_kernels,
-        reflectance_fft,
-        transmittance_fft,
-        ..
-    }) = &mut buffers.fft_buffers {
-        let dispatch_count = fft_kernels.len().div_ceil(64) as u32;
-        kernels.fft.call(
-            &mut pass,
-            DispatchGrid::Grid([dispatch_count, 1, 1]),
-            &buffers.cells.buffer,
-            &mut reflectance_fft.buffer,
-            &mut transmittance_fft.buffer,
+        if let Some(FftBuffers {
             fft_kernels,
-            &buffers.timestep_counter
-        )?;
-        kernels.finish_fft.call(
-            &mut pass,
-            DispatchGrid::Grid([dispatch_count, 1, 1]),
-            &mut reflectance_fft.buffer,
-            &mut transmittance_fft.buffer,
-            &buffers.grid_info
-        )?;
+            reflectance_fft,
+            transmittance_fft,
+            ..
+        }) = &mut buffers.fft_buffers {
+            let dispatch_count = fft_kernels.len().div_ceil(64) as u32;
+            kernels.fft.call(
+                &mut pass,
+                DispatchGrid::Grid([dispatch_count, 1, 1]),
+                &buffers.cells.buffer,
+                &mut reflectance_fft.buffer,
+                &mut transmittance_fft.buffer,
+                fft_kernels,
+                &buffers.timestep_counter
+            )?;
+            kernels.finish_fft.call(
+                &mut pass,
+                DispatchGrid::Grid([dispatch_count, 1, 1]),
+                &mut reflectance_fft.buffer,
+                &mut transmittance_fft.buffer,
+                &buffers.grid_info
+            )?;
+        }
     }
     drop(pass);
 
