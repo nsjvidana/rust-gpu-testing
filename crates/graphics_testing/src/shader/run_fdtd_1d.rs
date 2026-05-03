@@ -41,7 +41,7 @@ pub async fn run_fdtd_1d(backend: &GpuBackend) {
     let mut data = Fdtd1dData::new();
     data
         .add_object(obj)
-        .add_source(source);
+        .set_source(source);
 
     data.prepare_for_gpu(&stability_values, None);
 
@@ -82,12 +82,11 @@ async fn main_render_loop(
     let gpu_kernels = GpuKernels::from_backend(&backend)?;
     let mut buffers = data.create_buffers(backend)?;
 
-    for src in data.sources_gpu.iter() {
-        let pos = Vec3::Z * src.cell_idx as f32 * grid_info.cell_size;
-        scene.add_sphere(grid_info.cell_size / 5.)
-            .translate(pos)
-            .set_color(RED);
-    }
+    let src = &data.source_gpu;
+    let pos = Vec3::Z * src.cell_idx as f32 * grid_info.cell_size;
+    scene.add_sphere(grid_info.cell_size / 5.)
+        .translate(pos)
+        .set_color(RED);
 
     // Compute FFT kernels before running simulation
     if let Some(fft_bufs) = &mut buffers.fft_buffers {
@@ -198,7 +197,7 @@ fn submit_simulation(
             &mut buffers.cells.buffer,
             &mut buffers.materials,
             &buffers.source_vals,
-            &mut buffers.sources,
+            &mut buffers.source,
             &mut buffers.perfect_boundary_data.buffer,
             &mut buffers.timestep_counter,
             &buffers.grid_info
@@ -301,9 +300,9 @@ impl Ffts {
 pub struct Fdtd1dData {
     pub cells: Vec<GridCell1D>,
     pub materials: Vec<MaterialConstants1D>,
-    pub sources: Vec<GaussianPulse1D>,
+    pub source: GaussianPulse1D,
     pub source_vals: Vec<f32>,
-    pub sources_gpu: Vec<GpuSource1D>,
+    pub source_gpu: GpuSource1D,
     pub grid_info: GridInfo1D,
     /// If this has a value, FFTs are enabled.
     pub fft_data: Option<FftData>,
@@ -341,10 +340,7 @@ impl Fdtd1dData {
             .unwrap_or(1.);
         n_max = n_max.max(default_mat.n);
 
-        let max_src_duration = self.sources.iter()
-            .map(|s| s.tau)
-            .max_by(|a, b| a.total_cmp(b))
-            .unwrap_or(0.) * 12.;
+        let max_src_duration = self.source.tau * 12.;
         // time it takes to the slowest wave to propagate across the grid (a worst-case scenario)
         let t_prop = n_max/MaterialConstants1D::C_0 * self.grid_info.num_cells as f32;
         ((max_src_duration + t_prop) / self.grid_info.dt).ceil() as u32
@@ -419,26 +415,20 @@ impl Fdtd1dData {
             self.object_cell_indices[obj_i] = cells_range;
         }
 
-        // Prepare sources
-        let mut new_sources = Vec::with_capacity(self.sources.len());
-        let mut new_src_vals = Vec::with_capacity(self.source_vals.len());
-        for src in self.sources.iter() {
-            let vals = src.compute_source_values(self);
-
-            let start_idx = new_src_vals.len() as u32;
-            new_src_vals.extend_from_slice(&vals);
-            let end_idx = new_src_vals.len() as u32 - 1;
-            let cell_idx = 2; // Sources are always located in the first spacer region's 1st cell
-
-            new_sources.push(GpuSource1D {
-                start_idx,
-                end_idx,
-                curr_idx: 0,
-                cell_idx,
-            });
-        }
-        self.sources_gpu = new_sources;
-        self.source_vals = new_src_vals;
+        // Prepare source
+        self.source_vals.clear();
+        let src = &self.source;
+        let vals = src.compute_source_values(self);
+        let start_idx = self.source_vals.len() as u32;
+        self.source_vals.extend_from_slice(&vals);
+        let end_idx = self.source_vals.len() as u32 - 1;
+        let cell_idx = 2; // Sources are always located in the first spacer region's 1st cell
+        self.source_gpu = GpuSource1D {
+            start_idx,
+            end_idx,
+            curr_idx: 0,
+            cell_idx,
+        };
 
         self
     }
@@ -527,7 +517,7 @@ impl Fdtd1dData {
             cells: self.cells.create_gpu_buffer_readable(backend)?,
             materials: self.materials.create_gpu_buffer(backend)?,
             source_vals: self.source_vals.create_gpu_buffer(backend)?,
-            sources: self.sources_gpu.create_gpu_buffer(backend)?,
+            source: self.source_gpu.create_gpu_buffer(backend)?,
             perfect_boundary_data: PerfectBoundaryData::default()
                 .create_gpu_buffer_readable(backend)?,
             timestep_counter: timestep_counter.create_gpu_buffer(backend)?,
@@ -541,8 +531,8 @@ impl Fdtd1dData {
         self
     }
 
-    pub fn add_source(&mut self, src: GaussianPulse1D) -> &mut Self {
-        self.sources.push(src);
+    pub fn set_source(&mut self, src: GaussianPulse1D) -> &mut Self {
+        self.source = src;
         self
     }
 
@@ -555,10 +545,7 @@ impl Fdtd1dData {
     }
 
     pub fn compute_max_frequency(&self) -> f32 {
-        self.sources.iter()
-            .map(|g| 0.5 / g.tau)
-            .max_by(|a, b| a.total_cmp(b))
-            .expect("There must be at least one source!")
+        0.5 / self.source.tau
     }
 }
 
@@ -639,7 +626,7 @@ pub struct Fdtd1dBuffers {
     pub cells: GpuBufferReadable<GridCell1D>,
     pub materials: GpuBuffer<MaterialConstants1D>,
     pub source_vals: GpuBuffer<f32>,
-    pub sources: GpuBuffer<GpuSource1D>,
+    pub source: GpuBuffer<GpuSource1D>,
     pub perfect_boundary_data: GpuBufferReadable<PerfectBoundaryData>,
     pub grid_info: GpuBuffer<GridInfo1D>,
     pub timestep_counter: GpuBuffer<u32>,
@@ -691,5 +678,15 @@ impl GaussianPulse1D {
         }
 
         vals
+    }
+}
+
+impl Default for GaussianPulse1D {
+    fn default() -> Self {
+        Self {
+            amplitude: 0.,
+            tau: 1.,
+            t_0: 0.,
+        }
     }
 }

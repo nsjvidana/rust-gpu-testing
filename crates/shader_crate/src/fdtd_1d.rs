@@ -12,7 +12,7 @@ pub fn fdtd_1d(
     #[spirv(storage_buffer, descriptor_set = 0, binding = 0)] cells: &mut [GridCell1D],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] materials: &mut [MaterialConstants1D],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] source_vals: &[f32],
-    #[spirv(storage_buffer, descriptor_set = 0, binding = 3)] tfsf_sources: &mut [GpuSource1D],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 3)] tfsf_source: &mut GpuSource1D,
     #[spirv(storage_buffer, descriptor_set = 0, binding = 4)] boundary: &mut PerfectBoundaryData,
     #[spirv(storage_buffer, descriptor_set = 0, binding = 5)] timestep_counter: &mut u32,
     #[spirv(uniform, descriptor_set = 0, binding = 6)] grid_info: &GridInfo1D,
@@ -42,11 +42,9 @@ pub fn fdtd_1d(
     cells[idx].e_y += mat.e_update_coeff * (cells[idx].hn_x - hn_x1) / grid_info.cell_size;
 
     // Soft source injection
-    for i in 0..tfsf_sources.len() {
-        let src = &mut tfsf_sources[i];
-        let src_cell_idx = src.cell_idx as usize;
-        if src_cell_idx != idx { continue; }
-
+    let src = tfsf_source;
+    let src_cell_idx = src.cell_idx as usize;
+    if src_cell_idx == idx {
         let source_not_finished = (src.curr_idx <= (src.end_idx - src.start_idx)) as u32;
         let val_idx = (src.start_idx + src.curr_idx) as usize;
         cells[src_cell_idx].e_y += source_vals[val_idx] * source_not_finished as f32;
@@ -203,7 +201,7 @@ impl MaterialConstants1D {
 
 /// A Total Field/Scatter Field (TF/SF) electric field source the user can inject into the
 /// simulation.
-#[derive(Copy, Clone, Pod, Zeroable)]
+#[derive(Copy, Clone, Pod, Zeroable, Default)]
 #[repr(C)]
 pub struct GpuSource1D {
     pub start_idx: u32,
