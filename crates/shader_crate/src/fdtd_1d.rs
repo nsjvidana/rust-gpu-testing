@@ -1,4 +1,4 @@
-use crate::{select_val, GpuComplexPolar};
+use crate::{e_i, select_val, GpuComplexPolar};
 use bytemuck::{Pod, Zeroable};
 use khal_std::glamx::{UVec3, Vec2, Vec4, Vec4Swizzles};
 use khal_std::macros::{spirv, spirv_bindgen};
@@ -80,8 +80,7 @@ pub fn compute_fft_kernels_1d(
     if i >= fft_kernels.len() { return; }
 
     let f = fft.f_start + fft.f_increment * i as f32;
-    fft_kernels[i].r = 1.; // Unit magnitude to start with
-    fft_kernels[i].theta = -core::f32::consts::TAU * f * grid.dt; // ωt
+    fft_kernels[i] = e_i!(-core::f32::consts::TAU * f * grid.dt);
 }
 
 #[spirv_bindgen]
@@ -91,6 +90,7 @@ pub fn fft_1d(
     #[spirv(storage_buffer, descriptor_set = 0, binding = 0)] cells: &[GridCell1D],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] reflectance_fft: &mut [GpuComplexPolar],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] transmittance_fft: &mut [GpuComplexPolar],
+    // TODO: Add source_fft and only have support for one source.
     #[spirv(storage_buffer, descriptor_set = 0, binding = 3)] fft_kernels: &[GpuComplexPolar],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 4)] timestep_counter: &u32,
 ) {

@@ -33,6 +33,17 @@ pub fn vector_to_flat_idx(v: UVec3, grid_dim: UVec3) -> u32 {
         v.x
 }
 
+/// Computes `e^(i*theta)`, returning a complex number in polar coordinates.
+#[macro_export]
+macro_rules! e_i {
+    ($theta: expr) => {
+        GpuComplexPolar {
+            r: 1.,
+            theta: $theta
+        }
+    };
+}
+
 /// A complex number in polar coordinates
 #[derive(Copy, Clone, Pod, Zeroable, Default)]
 #[repr(C)]

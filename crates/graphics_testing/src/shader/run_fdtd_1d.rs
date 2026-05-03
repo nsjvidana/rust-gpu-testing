@@ -169,7 +169,6 @@ async fn main_render_loop(
 
         window.draw_line(Vec3::ZERO, Vec3::Z * grid_info.dimensions, WHITE, 2.0, false);
 
-        // TODO: visualize reflectance & transmittance
         if let Some(fft_out) = &fft_out {
             window.draw_ui(|ctx| {
                 egui::Window::new("Reflectance and Transmittance").show(ctx, |ui| {
