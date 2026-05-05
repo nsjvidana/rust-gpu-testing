@@ -66,6 +66,63 @@ pub fn fdtd_1d(
     workgroup_memory_barrier_with_group_sync()
 }
 
+#[spirv_bindgen]
+#[spirv(compute(threads(64)))]
+pub fn precompute_dft_kernels_1d(
+    #[spirv(global_invocation_id)] id: UVec3,
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 0)] dft_kernels: &mut [GpuComplexPolar],
+    #[spirv(uniform, descriptor_set = 0, binding = 1)] grid: &GridInfo1D,
+    #[spirv(uniform, descriptor_set = 0, binding = 2)] dft: &DftInfo1D,
+) {
+    let i = id.x as usize;
+    if i >= dft_kernels.len() { return; }
+
+    let f = dft.f_start + dft.f_increment * i as f32;
+    dft_kernels[i] = e_i!(-core::f32::consts::TAU * f * grid.dt);
+}
+
+#[spirv_bindgen]
+#[spirv(compute(threads(64)))]
+pub fn dft_1d(
+    #[spirv(global_invocation_id)] id: UVec3,
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 0)] dft_kernels: &[GpuComplexPolar],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] reflectance: &mut [GpuComplexPolar],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] transmittance: &mut [GpuComplexPolar],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 3)] source: &mut [GpuComplexPolar],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 4)] source_vals: &[f32],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 5)] cells: &[GridCell1D],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 6)] timestep_counter: &u32,
+) {
+    let i = id.x as usize;
+    if i >= dft_kernels.len() { return; }
+
+    let m = *timestep_counter as f32;
+    let src_i = (*timestep_counter as usize).min(source_vals.len() - 1);
+    let src = source_vals[src_i];
+
+    let k = dft_kernels[i].powf(m);
+    reflectance[i] += k * cells[0].e_y;
+    transmittance[i] += k * cells[cells.len()-1].e_y;
+    source[i] += k * src;
+}
+
+#[spirv_bindgen]
+#[spirv(compute(threads(64)))]
+pub fn finish_dft_1d(
+    #[spirv(global_invocation_id)] id: UVec3,
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 0)] reflectance: &mut [GpuComplexPolar],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] transmittance: &mut [GpuComplexPolar],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] source: &mut [GpuComplexPolar],
+    #[spirv(uniform, descriptor_set = 0, binding = 3)] grid: &GridInfo1D,
+) {
+    let i = id.x as usize;
+    if i >= reflectance.len() { return; }
+
+    transmittance[i] *= grid.dt;
+    reflectance[i] *= grid.dt;
+    source[i] *= grid.dt;
+}
+
 #[derive(Copy, Clone, Pod, Zeroable, Default, Debug)]
 #[repr(C)]
 pub struct GridInfo1D {
@@ -98,7 +155,7 @@ pub struct GridCell1D {
 
 #[derive(Copy, Clone, Pod, Zeroable, Default)]
 #[repr(C)]
-pub struct FftDataGPU {
+pub struct DftInfo1D {
     pub f_start: f32,
     pub f_increment: f32,
 }

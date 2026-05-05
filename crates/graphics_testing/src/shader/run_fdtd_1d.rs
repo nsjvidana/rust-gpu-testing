@@ -1,3 +1,4 @@
+use crate::prelude::GpuResult;
 use crate::util::{CreateGpuBuffer, CreateGpuBufferReadable, GpuBufferReadable};
 use egui_plot::{Legend, Line, Plot, PlotPoint, PlotPoints};
 use glam::Vec3;
@@ -8,13 +9,16 @@ use kiss3d::egui;
 use kiss3d::event::{Action, Key};
 use kiss3d::light::Light;
 use kiss3d::prelude::{Color, SceneNode3d, Window, GREEN, RED, WHITE};
-use shader_crate::fdtd_1d::{Fdtd1d, GpuSource1D, GridCell1D, GridInfo1D, MaterialConstants1D, PerfectBoundaryData};
+use shader_crate::fdtd_1d::{Dft1d, DftInfo1D, Fdtd1d, FinishDft1d, GpuSource1D, GridCell1D, GridInfo1D, MaterialConstants1D, PerfectBoundaryData, PrecomputeDftKernels1d};
 use shader_crate::{e_i, GpuComplexPolar};
 use std::ops::{Range, RangeInclusive};
 
 #[derive(Shader)]
 struct GpuKernels {
     pub fdtd_1d: Fdtd1d,
+    pub precompute_dft_kernels1d: PrecomputeDftKernels1d,
+    pub dft1d: Dft1d,
+    pub finish_dft1d: FinishDft1d,
 }
 
 pub async fn run_fdtd_1d(backend: &GpuBackend) {
@@ -87,9 +91,20 @@ async fn main_render_loop(
         .set_color(RED);
 
     // Compute FFT kernels before running simulation
-    // TODO: call precompute_dft shader
     if let Some(dft) = &mut data.dft {
-        dft.precompute_kernels(grid_info.dt);
+        buffers.dft_buffers = Some(dft.create_buffers(backend)?);
+        let dft_bufs = buffers.dft_buffers.as_mut().unwrap();
+        let mut encoder = backend.begin_encoding();
+        let mut pass = encoder.begin_pass("precompute_dft_kernels1d", None);
+        gpu_kernels.precompute_dft_kernels1d.call(
+            &mut pass,
+            DispatchGrid::Grid(dft_bufs.dispatch_grid),
+            &mut dft_bufs.kernels,
+            &buffers.grid_info,
+            &dft_bufs.dft_info
+        )?;
+        drop(pass);
+        backend.submit(encoder)?;
     }
 
     let mut abs_max_val = 0.;
@@ -105,7 +120,12 @@ async fn main_render_loop(
             backend.synchronize()?;
             buffers.cells.read(backend, &mut cells_out).await?;
             buffers.perfect_boundary_data.read(backend, &mut boundary_out).await?;
-            // TODO: read dft buffers to Dft struct
+            if let Some(dft_bufs) = &buffers.dft_buffers {
+                let dft = data.dft.as_mut().unwrap();
+                dft_bufs.reflectance.read(backend, &mut dft.reflectance).await?;
+                dft_bufs.transmittance.read(backend, &mut dft.transmittance).await?;
+                dft_bufs.source.read(backend, &mut dft.source).await?;
+            }
 
             submit_simulation(
                 backend,
@@ -159,7 +179,7 @@ async fn main_render_loop(
 
 fn submit_simulation(
     backend: &GpuBackend,
-    kernels: &GpuKernels,
+    gpu_kernels: &GpuKernels,
     buffers: &mut Fdtd1dBuffers,
     grid_info: &GridInfo1D
 ) -> Result<(), GpuBackendError> {
@@ -168,7 +188,7 @@ fn submit_simulation(
     // Compute pass
     let mut pass = encoder.begin_pass("", None);
     for _ in 0..grid_info.steps_per_call {
-        kernels.fdtd_1d.call(
+        gpu_kernels.fdtd_1d.call(
             &mut pass,
             DispatchGrid::Grid([grid_info.num_cells.div_ceil(64), 1, 1]),
             &mut buffers.cells.buffer,
@@ -180,13 +200,30 @@ fn submit_simulation(
             &buffers.grid_info
         )?;
 
-        // TODO: call dft (and maybe even finish_dft) shaders
+        if let Some(dft_bufs) = &mut buffers.dft_buffers {
+            gpu_kernels.dft1d.call(
+                &mut pass,
+                DispatchGrid::Grid(dft_bufs.dispatch_grid),
+                &dft_bufs.kernels,
+                &mut dft_bufs.reflectance.buffer,
+                &mut dft_bufs.transmittance.buffer,
+                &mut dft_bufs.source.buffer,
+                &buffers.source_vals,
+                &buffers.cells.buffer,
+                &buffers.timestep_counter
+            )?;
+            // TODO: call finish_dft_1d when reaching a "max iterations" value
+        }
     }
     drop(pass);
 
     buffers.cells.encode_copy_cmd(&mut encoder)?;
     buffers.perfect_boundary_data.encode_copy_cmd(&mut encoder)?;
-    // TODO: encode copy commands for dfts
+    if let Some(dft_bufs) = &mut buffers.dft_buffers {
+        dft_bufs.reflectance.encode_copy_cmd(&mut encoder)?;
+        dft_bufs.transmittance.encode_copy_cmd(&mut encoder)?;
+        dft_bufs.source.encode_copy_cmd(&mut encoder)?;
+    }
 
     backend.submit(encoder)
 }
@@ -278,8 +315,21 @@ impl Dft {
         });
     }
 
-    pub fn create_buffers(&self) -> DftBuffers {
-        todo!()
+    pub fn create_buffers(&self, backend: &GpuBackend) -> GpuResult<DftBuffers> {
+        let kernels = vec![GpuComplexPolar::default(); self.reflectance.len()];
+        Ok(
+            DftBuffers {
+                reflectance: self.reflectance.create_gpu_buffer_readable(backend)?,
+                transmittance: self.transmittance.create_gpu_buffer_readable(backend)?,
+                source: self.source.create_gpu_buffer_readable(backend)?,
+                kernels: kernels.create_gpu_buffer(backend)?,
+                dft_info: DftInfo1D {
+                    f_start: *self.freq_range.start(),
+                    f_increment: self.f_increment
+                }.create_gpu_uniform(backend)?,
+                dispatch_grid: [kernels.len().div_ceil(64) as u32, 1, 1]
+            }
+        )
     }
 }
 
@@ -289,11 +339,12 @@ pub struct DftPlot {
 }
 
 pub struct DftBuffers {
-    pub reflectance: GpuBuffer<GpuComplexPolar>,
-    pub transmittance: GpuBuffer<GpuComplexPolar>,
-    pub source: GpuBuffer<GpuComplexPolar>,
+    pub reflectance: GpuBufferReadable<GpuComplexPolar>,
+    pub transmittance: GpuBufferReadable<GpuComplexPolar>,
+    pub source: GpuBufferReadable<GpuComplexPolar>,
     pub kernels: GpuBuffer<GpuComplexPolar>,
-    // TODO: pub dft: GpuBuffer<GpuDft>
+    pub dft_info: GpuBuffer<DftInfo1D>,
+    pub dispatch_grid: [u32; 3],
 }
 
 #[derive(Default)]
@@ -491,6 +542,10 @@ impl Fdtd1dData {
 
     pub fn create_buffers(&self, backend: &GpuBackend) -> Result<Fdtd1dBuffers, GpuBackendError> {
         let timestep_counter = 0;
+        let mut dft_buffers = None;
+        if let Some(dft) = &self.dft {
+            dft_buffers = Some(dft.create_buffers(backend)?);
+        }
 
         Ok(Fdtd1dBuffers {
             cells: self.cells.create_gpu_buffer_readable(backend)?,
@@ -499,8 +554,9 @@ impl Fdtd1dData {
             source: self.source_gpu.create_gpu_buffer(backend)?,
             perfect_boundary_data: PerfectBoundaryData::default()
                 .create_gpu_buffer_readable(backend)?,
-            timestep_counter: timestep_counter.create_gpu_buffer(backend)?,
             grid_info: self.grid_info.create_gpu_uniform(backend)?,
+            dft_buffers,
+            timestep_counter: timestep_counter.create_gpu_buffer(backend)?,
         })
     }
 
@@ -587,6 +643,7 @@ pub struct Fdtd1dBuffers {
     pub source: GpuBuffer<GpuSource1D>,
     pub perfect_boundary_data: GpuBufferReadable<PerfectBoundaryData>,
     pub grid_info: GpuBuffer<GridInfo1D>,
+    pub dft_buffers: Option<DftBuffers>,
     pub timestep_counter: GpuBuffer<u32>,
 }
 
