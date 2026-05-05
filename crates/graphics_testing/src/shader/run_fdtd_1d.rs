@@ -49,9 +49,9 @@ pub async fn run_fdtd_1d(backend: &GpuBackend) {
     let mut f_res = data.estimate_max_timesteps(None);
         if f_res % 2 == 0 { f_res -= 1; }
     let f_max = max_pulse_freq;
-    data.enable_dfts(0.0..=f_max, 1001);
+    data.enable_dfts(0.0..=f_max, 10001);
 
-    data.set_step_count(1);
+    data.set_step_count(50);
     println!("{:?}", data.grid_info);
 
     let max_src_val = data.source_vals.iter()

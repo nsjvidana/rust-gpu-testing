@@ -177,12 +177,16 @@ pub struct MaterialConstants1D {
     pub eps_r: f32,
     pub mu_r: f32,
     /// Refractive index
-    pub n: f32
+    pub n: f32,
+    /// Impedance of material, without accounting for conductivity. Computed as:
+    /// `n_0 * sqrt(mu_r / eps_r)`
+    pub impedance: f32
 }
 
 impl MaterialConstants1D {
     /// Speed of light in free space
     pub const C_0: f32 = 299792458.0;
+    pub const N_0: f32 = 376.73031346177;
 
     pub fn new(eps_r: f32, mu_r: f32, dt: f32) -> Self {
         Self {
@@ -190,7 +194,8 @@ impl MaterialConstants1D {
             hn_update_coeff: Self::compute_hn_update_coeff(mu_r, dt),
             eps_r,
             mu_r,
-            n: Float::sqrt(eps_r * mu_r)
+            n: Float::sqrt(eps_r * mu_r),
+            impedance: Self::N_0 * Float::sqrt(mu_r / eps_r)
         }
     }
 
