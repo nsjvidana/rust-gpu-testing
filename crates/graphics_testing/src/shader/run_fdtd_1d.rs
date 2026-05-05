@@ -8,16 +8,13 @@ use kiss3d::egui;
 use kiss3d::event::{Action, Key};
 use kiss3d::light::Light;
 use kiss3d::prelude::{Color, SceneNode3d, Window, GREEN, RED, WHITE};
-use shader_crate::fdtd_1d::{ComputeFftKernels1d, Fdtd1d, Fft1d, FftDataGPU, FinishFft1d, GpuSource1D, GridCell1D, GridInfo1D, MaterialConstants1D, PerfectBoundaryData};
+use shader_crate::fdtd_1d::{Fdtd1d, GpuSource1D, GridCell1D, GridInfo1D, MaterialConstants1D, PerfectBoundaryData};
 use shader_crate::{e_i, GpuComplexPolar};
 use std::ops::{Range, RangeInclusive};
 
 #[derive(Shader)]
 struct GpuKernels {
     pub fdtd_1d: Fdtd1d,
-    pub compute_fft_kernels: ComputeFftKernels1d,
-    pub fft: Fft1d,
-    pub finish_fft: FinishFft1d
 }
 
 pub async fn run_fdtd_1d(backend: &GpuBackend) {
@@ -90,20 +87,7 @@ async fn main_render_loop(
         .set_color(RED);
 
     // Compute FFT kernels before running simulation
-    if let Some(fft_bufs) = &mut buffers.fft_buffers {
-        let mut encoder = backend.begin_encoding();
-        let mut pass = encoder.begin_pass("", None);
-        let dispatch_count = fft_bufs.fft_kernels.len().div_ceil(64) as u32;
-        gpu_kernels.compute_fft_kernels.call(
-            &mut pass,
-            DispatchGrid::Grid([dispatch_count, 1, 1]),
-            &mut fft_bufs.fft_kernels,
-            &mut fft_bufs.fft_data,
-            &buffers.grid_info
-        )?;
-        drop(pass);
-        backend.submit(encoder)?;
-    }
+    // TODO: call precompute_dft shader
     if let Some(dft) = &mut data.dft {
         dft.precompute_kernels(grid_info.dt);
     }
@@ -111,7 +95,6 @@ async fn main_render_loop(
     let mut abs_max_val = 0.;
     let mut cells_out = vec![GridCell1D::default(); grid_info.num_cells as usize];
     let mut boundary_out = vec![PerfectBoundaryData::default()];
-    let mut fft_out = data.fft_data.as_ref().map(|fft| Ffts::new(fft.resolution as _));
     let mut prev_action = Action::Release;
     while window.render_3d(&mut scene, &mut camera).await {
         let curr_action = window.get_key(Key::T);
@@ -122,12 +105,7 @@ async fn main_render_loop(
             backend.synchronize()?;
             buffers.cells.read(backend, &mut cells_out).await?;
             buffers.perfect_boundary_data.read(backend, &mut boundary_out).await?;
-            if let Some(fft_out) = fft_out.as_mut() {
-                let bufs = buffers.fft_buffers.as_ref().unwrap();
-                bufs.reflectance_fft.read(backend, &mut fft_out.reflectance).await?;
-                bufs.transmittance_fft.read(backend, &mut fft_out.transmittance).await?;
-                bufs.source_fft.read(backend, &mut fft_out.source).await?;
-            }
+            // TODO: read dft buffers to Dft struct
 
             submit_simulation(
                 backend,
@@ -135,9 +113,6 @@ async fn main_render_loop(
                 &mut buffers,
                 grid_info
             )?;
-            if let Some(dft) = &mut data.dft {
-                dft.dft(&cells_out, &data.source_vals);
-            }
         }
         prev_action = curr_action;
 
@@ -178,13 +153,6 @@ async fn main_render_loop(
         if let Some(dft) = &mut data.dft {
             window.draw_ui(|ctx| dft.plot_dft(ctx));
         }
-        if let Some(fft_out) = &mut fft_out {
-            window.draw_ui(|ctx| {
-                egui::Window::new("Reflectance and Transmittance").show(ctx, |ui| {
-                    fft_out.fft_ui(data.fft_data.as_ref().unwrap(), ui);
-                });
-            });
-        }
     }
     Ok(())
 }
@@ -212,44 +180,13 @@ fn submit_simulation(
             &buffers.grid_info
         )?;
 
-        if let Some(FftBuffers {
-            fft_kernels,
-            reflectance_fft,
-            transmittance_fft,
-            source_fft,
-            ..
-        }) = &mut buffers.fft_buffers {
-            let dispatch_count = fft_kernels.len().div_ceil(64) as u32;
-            kernels.fft.call(
-                &mut pass,
-                DispatchGrid::Grid([dispatch_count, 1, 1]),
-                &buffers.cells.buffer,
-                &mut reflectance_fft.buffer,
-                &mut transmittance_fft.buffer,
-                &mut source_fft.buffer,
-                &buffers.source,
-                fft_kernels,
-                &buffers.timestep_counter
-            )?;
-            kernels.finish_fft.call(
-                &mut pass,
-                DispatchGrid::Grid([dispatch_count, 1, 1]),
-                &mut reflectance_fft.buffer,
-                &mut transmittance_fft.buffer,
-                &mut source_fft.buffer,
-                &buffers.grid_info
-            )?;
-        }
+        // TODO: call dft (and maybe even finish_dft) shaders
     }
     drop(pass);
 
     buffers.cells.encode_copy_cmd(&mut encoder)?;
     buffers.perfect_boundary_data.encode_copy_cmd(&mut encoder)?;
-    if let Some(fft) = &mut buffers.fft_buffers {
-        fft.reflectance_fft.encode_copy_cmd(&mut encoder)?;
-        fft.transmittance_fft.encode_copy_cmd(&mut encoder)?;
-        fft.source_fft.encode_copy_cmd(&mut encoder)?;
-    }
+    // TODO: encode copy commands for dfts
 
     backend.submit(encoder)
 }
@@ -359,71 +296,6 @@ pub struct DftBuffers {
     // TODO: pub dft: GpuBuffer<GpuDft>
 }
 
-pub struct Ffts {
-    pub reflectance: Vec<GpuComplexPolar>,
-    pub transmittance: Vec<GpuComplexPolar>,
-    pub source: Vec<GpuComplexPolar>,
-    pub plot: FftPlot
-}
-
-impl Ffts {
-    pub fn new(resolution: usize) -> Self {
-        Self {
-            reflectance: vec![GpuComplexPolar::default(); resolution],
-            transmittance: vec![GpuComplexPolar::default(); resolution],
-            source: vec![GpuComplexPolar::default(); resolution],
-            plot: FftPlot::new(resolution)
-        }
-    }
-
-    pub fn fft_ui(&mut self, fft_data: &FftData, ui: &mut egui::Ui) {
-        let plot = &mut self.plot;
-        let f_start = *fft_data.frequency_range.start() as f64;
-        let f_end = *fft_data.frequency_range.end() as f64;
-        let f_incr = fft_data.f_increment as f64;
-        let coords_txt = plot.prev_pointer_coords
-            .map(|p| format!("x: {}, y: {}", p.x, p.y))
-            .unwrap_or("None".to_string());
-        ui.label(format!("Pointer Coords: {coords_txt}"));
-        Plot::new("FFTs")
-            .legend(Legend::default())
-            .show(ui, |plot_ui| {
-                plot_ui.set_plot_bounds_x(f_start..=f_end);
-                plot.prev_pointer_coords = plot_ui.pointer_coordinate();
-
-                for (i, fft) in self.reflectance.iter().enumerate() {
-                    let src = self.source[i].r + (self.source[i].r == 0.) as u32 as f32;
-                    let a = (fft.r / src).powi(2) as f64;
-                    plot.reflectance[i] = PlotPoint::new(f_start + f_incr * i as f64, a);
-                }
-                for (i, fft) in self.transmittance.iter().enumerate() {
-                    let src = self.source[i].r + (self.source[i].r == 0.) as u32 as f32;
-                    let a = (fft.r / src).powi(2) as f64;
-                    plot.transmittance[i] = PlotPoint::new(f_start + f_incr * i as f64, a);
-                }
-                plot_ui.line(Line::new("Reflectance", PlotPoints::Borrowed(&plot.reflectance)));
-                plot_ui.line(Line::new("Transmittance", PlotPoints::Borrowed(&plot.transmittance)));
-            });
-    }
-}
-
-pub struct FftPlot {
-    pub reflectance: Vec<PlotPoint>,
-    pub transmittance: Vec<PlotPoint>,
-    pub prev_pointer_coords: Option<PlotPoint>,
-}
-
-impl FftPlot {
-    fn new(resolution: usize) -> Self {
-        let fft_vals = vec![PlotPoint::new(0, 0); resolution];
-        Self {
-            transmittance: fft_vals.clone(),
-            reflectance: fft_vals,
-            prev_pointer_coords: None,
-        }
-    }
-}
-
 #[derive(Default)]
 pub struct Fdtd1dData {
     pub cells: Vec<GridCell1D>,
@@ -432,8 +304,6 @@ pub struct Fdtd1dData {
     pub source_vals: Vec<f32>,
     pub source_gpu: GpuSource1D,
     pub grid_info: GridInfo1D,
-    /// If this has a value, FFTs are enabled.
-    pub fft_data: Option<FftData>,
 
     pub dft: Option<Dft>,
 
@@ -453,14 +323,6 @@ impl Fdtd1dData {
     pub fn enable_dfts(&mut self, frequency_range: RangeInclusive<f32>, resolution: u32) -> &mut Self {
         let resolution = resolution - (resolution % 2); // resolution must be odd
         self.dft = Some(Dft::new(frequency_range, resolution as usize));
-        self
-    }
-
-    /// Call this to enable reflectance and transmittance FFTs.
-    ///
-    /// The maximum number of timesteps must be known to call this function.
-    pub fn enable_ffts(&mut self, frequency_range: RangeInclusive<f32>, resolution: u32) -> &mut Self {
-        self.fft_data = Some(FftData::new(frequency_range, resolution));
         self
     }
 
@@ -628,26 +490,6 @@ impl Fdtd1dData {
     }
 
     pub fn create_buffers(&self, backend: &GpuBackend) -> Result<Fdtd1dBuffers, GpuBackendError> {
-        let mut fft_buffers = None;
-        if let Some(fft) = &self.fft_data {
-            let kernel_count = fft.resolution as usize;
-            let init_fft_kernels = vec![GpuComplexPolar::default(); kernel_count];
-            let init_fft_data = vec![GpuComplexPolar::default(); kernel_count];
-
-            let f_start = *fft.frequency_range.start();
-            fft_buffers = Some(
-                FftBuffers {
-                    fft_data: FftDataGPU {
-                        f_start,
-                        f_increment: fft.f_increment
-                    }.create_gpu_uniform(backend)?,
-                    fft_kernels: init_fft_kernels.create_gpu_buffer(backend)?,
-                    reflectance_fft: init_fft_data.create_gpu_buffer_readable(backend)?,
-                    transmittance_fft: init_fft_data.create_gpu_buffer_readable(backend)?,
-                    source_fft: init_fft_data.create_gpu_buffer_readable(backend)?,
-                }
-            )
-        }
         let timestep_counter = 0;
 
         Ok(Fdtd1dBuffers {
@@ -659,7 +501,6 @@ impl Fdtd1dData {
                 .create_gpu_buffer_readable(backend)?,
             timestep_counter: timestep_counter.create_gpu_buffer(backend)?,
             grid_info: self.grid_info.create_gpu_uniform(backend)?,
-            fft_buffers
         })
     }
 
@@ -683,26 +524,6 @@ impl Fdtd1dData {
 
     pub fn compute_max_frequency(&self) -> f32 {
         0.5 / self.source.tau
-    }
-}
-
-pub struct FftData {
-    pub frequency_range: RangeInclusive<f32>,
-    pub resolution: u32,
-    pub f_increment: f32
-}
-
-impl FftData {
-    pub fn new(frequency_range: RangeInclusive<f32>, resolution: u32) -> Self {
-        Self {
-            f_increment: Self::compute_f_increment(&frequency_range, resolution),
-            frequency_range,
-            resolution,
-        }
-    }
-
-    pub fn compute_f_increment(f_range: &RangeInclusive<f32>, resolution: u32) -> f32 {
-        (f_range.end() - f_range.start()) / (resolution as f32 - 1.)
     }
 }
 
@@ -767,16 +588,6 @@ pub struct Fdtd1dBuffers {
     pub perfect_boundary_data: GpuBufferReadable<PerfectBoundaryData>,
     pub grid_info: GpuBuffer<GridInfo1D>,
     pub timestep_counter: GpuBuffer<u32>,
-
-    pub fft_buffers: Option<FftBuffers>
-}
-
-pub struct FftBuffers {
-    pub fft_data: GpuBuffer<FftDataGPU>,
-    pub fft_kernels: GpuBuffer<GpuComplexPolar>,
-    pub reflectance_fft: GpuBufferReadable<GpuComplexPolar>,
-    pub transmittance_fft: GpuBufferReadable<GpuComplexPolar>,
-    pub source_fft: GpuBufferReadable<GpuComplexPolar>,
 }
 
 #[derive(Debug)]
