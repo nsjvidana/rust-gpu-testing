@@ -235,10 +235,6 @@ pub struct Dft {
     pub transmittance: Vec<GpuComplexPolar>,
     pub source: Vec<GpuComplexPolar>,
     pub plot: DftPlot,
-
-    // TODO: remove these once converted to GPU
-    pub dft_kernels: Vec<GpuComplexPolar>,
-    pub timestep_counter: u32,
 }
 
 impl Dft {
@@ -261,39 +257,6 @@ impl Dft {
                 reflectance: plot_points.clone(),
                 transmittance: plot_points,
             },
-
-            dft_kernels: vec![GpuComplexPolar::default(); resolution],
-            timestep_counter: 0,
-        }
-    }
-
-    pub fn precompute_kernels(&mut self, dt: f32) {
-        let min_f = *self.freq_range.start();
-        for (i, k) in self.dft_kernels.iter_mut().enumerate() {
-            let f = min_f + self.f_increment * i as f32;
-            *k = e_i!(-core::f32::consts::TAU * f * dt);
-        }
-    }
-
-    pub fn dft(&mut self, cells: &Vec<GridCell1D>, source_vals: &Vec<f32>) {
-        self.timestep_counter += 1;
-
-        let m = self.timestep_counter as f32;
-        let src_i = (self.timestep_counter as usize).min(source_vals.len() - 1);
-        let src = source_vals[src_i];
-        for (i, k) in self.dft_kernels.iter().enumerate() {
-            let k = k.powf(m);
-            self.reflectance[i] += k * cells[0].e_y;
-            self.transmittance[i] += k * cells[cells.len()-1].e_y;
-            self.source[i] += k * src;
-        }
-    }
-
-    pub fn finish_dft(&mut self, dt: f32) {
-        for i in 0..self.dft_kernels.len() {
-            self.transmittance[i] *= dt;
-            self.reflectance[i] *= dt;
-            self.source[i] *= dt;
         }
     }
 
@@ -310,7 +273,7 @@ impl Dft {
 
     /// Prepare & normalize DFT plots. Called when DFTs have changed
     pub fn update_dft_plots(&mut self) {
-        for i in 0..self.dft_kernels.len() {
+        for i in 0..self.reflectance.len() {
             let src = self.source[i].r as f64 + (self.source[i].r == 0.) as u64 as f64;
             self.plot.reflectance[i].y = (self.reflectance[i].r as f64 / src).powi(2);
             self.plot.transmittance[i].y = (self.transmittance[i].r as f64 / src).powi(2);
