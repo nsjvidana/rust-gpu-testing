@@ -255,18 +255,20 @@ impl Dft {
             source: vec![GpuComplexPolar::default(); resolution],
             plot: DftPlot {
                 reflectance: plot_points.clone(),
-                transmittance: plot_points,
+                transmittance: plot_points.clone(),
+                sum: plot_points,
             },
         }
     }
 
     pub fn plot_dft(&mut self, egui_ctx: &egui::Context) {
-        egui::Window::new("Discrete Fourier Transforms").show(egui_ctx, |ui| {
+        egui::Window::new("Reflectance & Transmittance DFTs").show(egui_ctx, |ui| {
             Plot::new("DFT")
                 .legend(Legend::default())
                 .show(ui, |plot_ui| {
                     plot_ui.line(Line::new("Reflectance", PlotPoints::Borrowed(&self.plot.reflectance)));
                     plot_ui.line(Line::new("Transmittance", PlotPoints::Borrowed(&self.plot.transmittance)));
+                    plot_ui.line(Line::new("Reflectance + Transmittance", PlotPoints::Borrowed(&self.plot.sum)));
                 })
         });
     }
@@ -274,9 +276,10 @@ impl Dft {
     /// Prepare & normalize DFT plots. Called when DFTs have changed
     pub fn update_dft_plots(&mut self) {
         for i in 0..self.reflectance.len() {
-            let src = self.source[i].r as f64 + (self.source[i].r == 0.) as u64 as f64;
+            let src = self.source[i].r as f64;
             self.plot.reflectance[i].y = (self.reflectance[i].r as f64 / src).powi(2);
             self.plot.transmittance[i].y = (self.transmittance[i].r as f64 / src).powi(2);
+            self.plot.sum[i].y = self.plot.reflectance[i].y + self.plot.transmittance[i].y;
         }
     }
 
@@ -301,6 +304,7 @@ impl Dft {
 pub struct DftPlot {
     pub reflectance: Vec<PlotPoint>,
     pub transmittance: Vec<PlotPoint>,
+    pub sum: Vec<PlotPoint>,
 }
 
 pub struct DftBuffers {
