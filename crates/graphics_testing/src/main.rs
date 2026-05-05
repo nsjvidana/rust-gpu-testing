@@ -8,8 +8,8 @@ use khal::backend::{Backend, Buffer, Encoder, GpuBackend, WebGpu};
 use khal::{AsGpuSlice, Shader};
 use kiss3d::prelude::*;
 use rand::{RngExt, SeedableRng};
+use shader::run_fdtd_1d;
 use std::ops::{Div, Mul};
-use shader::{run_fdtd_1d, run_fdtd_3d};
 
 pub static SPIRV_DIR: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/shaders-spirv");
 

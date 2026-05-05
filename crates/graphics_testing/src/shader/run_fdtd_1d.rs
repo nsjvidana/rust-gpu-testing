@@ -9,7 +9,7 @@ use kiss3d::event::{Action, Key};
 use kiss3d::light::Light;
 use kiss3d::prelude::{Color, SceneNode3d, Window, GREEN, RED, WHITE};
 use shader_crate::fdtd_1d::{ComputeFftKernels1d, Fdtd1d, Fft1d, FftDataGPU, FinishFft1d, GpuSource1D, GridCell1D, GridInfo1D, MaterialConstants1D, PerfectBoundaryData};
-use shader_crate::GpuComplexPolar;
+use shader_crate::{e_i, GpuComplexPolar};
 use std::ops::{Range, RangeInclusive};
 
 #[derive(Shader)]
@@ -48,7 +48,8 @@ pub async fn run_fdtd_1d(backend: &GpuBackend) {
     let mut f_res = data.estimate_max_timesteps(None);
         if f_res % 2 == 0 { f_res -= 1; }
     let f_max = data.compute_max_frequency();
-    data.enable_ffts((-f_max)..=f_max, f_res);
+    // data.enable_ffts((-f_max)..=f_max, f_res);
+    data.enable_dfts(0.0..=max_pulse_freq, 1001);
 
     data.set_step_count(1);
     println!("{:?}", data.grid_info);
@@ -103,6 +104,9 @@ async fn main_render_loop(
         drop(pass);
         backend.submit(encoder)?;
     }
+    if let Some(dft) = &mut data.dft {
+        dft.precompute_kernels(grid_info.dt);
+    }
 
     let mut abs_max_val = 0.;
     let mut cells_out = vec![GridCell1D::default(); grid_info.num_cells as usize];
@@ -131,6 +135,9 @@ async fn main_render_loop(
                 &mut buffers,
                 grid_info
             )?;
+            if let Some(dft) = &mut data.dft {
+                dft.dft(&cells_out, &data.source_vals);
+            }
         }
         prev_action = curr_action;
 
@@ -168,6 +175,9 @@ async fn main_render_loop(
 
         window.draw_line(Vec3::ZERO, Vec3::Z * grid_info.dimensions, WHITE, 2.0, false);
 
+        if let Some(dft) = &mut data.dft {
+            window.draw_ui(|ctx| dft.plot_dft(ctx));
+        }
         if let Some(fft_out) = &mut fft_out {
             window.draw_ui(|ctx| {
                 egui::Window::new("Reflectance and Transmittance").show(ctx, |ui| {
@@ -242,6 +252,111 @@ fn submit_simulation(
     }
 
     backend.submit(encoder)
+}
+
+pub struct Dft {
+    pub freq_range: RangeInclusive<f32>,
+    pub f_increment: f32,
+    pub reflectance: Vec<GpuComplexPolar>,
+    pub transmittance: Vec<GpuComplexPolar>,
+    pub source: Vec<GpuComplexPolar>,
+    pub plot: DftPlot,
+
+    // TODO: remove these once converted to GPU
+    pub dft_kernels: Vec<GpuComplexPolar>,
+    pub timestep_counter: u32,
+}
+
+impl Dft {
+    pub fn new(frequency_range: RangeInclusive<f32>, resolution: usize) -> Self {
+        let start = *frequency_range.start() as f64;
+        let end = *frequency_range.end() as f64;
+        let f_increment = (end - start) / (resolution as f64 - 1.);
+
+        let plot_points = (0..resolution)
+            .map(|i| PlotPoint::new(start + f_increment * i as f64, 0.))
+            .collect::<Vec<_>>();
+
+        Self {
+            freq_range: frequency_range,
+            f_increment: f_increment as f32,
+            reflectance: vec![GpuComplexPolar::default(); resolution],
+            transmittance: vec![GpuComplexPolar::default(); resolution],
+            source: vec![GpuComplexPolar::default(); resolution],
+            plot: DftPlot {
+                reflectance: plot_points.clone(),
+                transmittance: plot_points,
+            },
+
+            dft_kernels: vec![GpuComplexPolar::default(); resolution],
+            timestep_counter: 0,
+        }
+    }
+
+    pub fn precompute_kernels(&mut self, dt: f32) {
+        let min_f = *self.freq_range.start();
+        for (i, k) in self.dft_kernels.iter_mut().enumerate() {
+            let f = min_f + self.f_increment * i as f32;
+            *k = e_i!(-core::f32::consts::TAU * f * dt);
+        }
+    }
+
+    pub fn dft(&mut self, cells: &Vec<GridCell1D>, source_vals: &Vec<f32>) {
+        self.timestep_counter += 1;
+
+        let m = self.timestep_counter as f32;
+        let src_i = (self.timestep_counter as usize).min(source_vals.len() - 1);
+        let src = source_vals[src_i];
+        for (i, k) in self.dft_kernels.iter().enumerate() {
+            let k = k.powf(m);
+            self.reflectance[i] += k * cells[0].e_y;
+            self.transmittance[i] += k * cells[cells.len()-1].e_y;
+            self.source[i] += k * src;
+        }
+    }
+
+    pub fn finish_dft(&mut self, dt: f32) {
+        for i in 0..self.dft_kernels.len() {
+            self.transmittance[i] *= dt;
+            self.reflectance[i] *= dt;
+            self.source[i] *= dt;
+        }
+    }
+
+    pub fn plot_dft(&mut self, egui_ctx: &egui::Context) {
+        // Prepare & normalize DFT plots
+        for i in 0..self.dft_kernels.len() {
+            let src = self.source[i].r as f64 + (self.source[i].r == 0.) as u64 as f64;
+            self.plot.reflectance[i].y = (self.reflectance[i].r as f64 / src).powi(2);
+            self.plot.transmittance[i].y = (self.transmittance[i].r as f64 / src).powi(2);
+        }
+
+        egui::Window::new("Discrete Fourier Transforms").show(egui_ctx, |ui| {
+            Plot::new("DFT")
+                .legend(Legend::default())
+                .show(ui, |plot_ui| {
+                    plot_ui.line(Line::new("Reflectance", PlotPoints::Borrowed(&self.plot.reflectance)));
+                    plot_ui.line(Line::new("Transmittance", PlotPoints::Borrowed(&self.plot.transmittance)));
+                })
+        });
+    }
+
+    pub fn create_buffers(&self) -> DftBuffers {
+        todo!()
+    }
+}
+
+pub struct DftPlot {
+    pub reflectance: Vec<PlotPoint>,
+    pub transmittance: Vec<PlotPoint>,
+}
+
+pub struct DftBuffers {
+    pub reflectance: GpuBuffer<GpuComplexPolar>,
+    pub transmittance: GpuBuffer<GpuComplexPolar>,
+    pub source: GpuBuffer<GpuComplexPolar>,
+    pub kernels: GpuBuffer<GpuComplexPolar>,
+    // TODO: pub dft: GpuBuffer<GpuDft>
 }
 
 pub struct Ffts {
@@ -320,6 +435,8 @@ pub struct Fdtd1dData {
     /// If this has a value, FFTs are enabled.
     pub fft_data: Option<FftData>,
 
+    pub dft: Option<Dft>,
+
     pub objects: Vec<ObjectInfo1D>,
     /// The range of cells each object takes
     pub object_cell_indices: Vec<Range<usize>>,
@@ -331,6 +448,12 @@ impl Fdtd1dData {
             grid_info: GridInfo1D::max_values(0.),
             ..Default::default()
         }
+    }
+
+    pub fn enable_dfts(&mut self, frequency_range: RangeInclusive<f32>, resolution: u32) -> &mut Self {
+        let resolution = resolution - (resolution % 2); // resolution must be odd
+        self.dft = Some(Dft::new(frequency_range, resolution as usize));
+        self
     }
 
     /// Call this to enable reflectance and transmittance FFTs.
