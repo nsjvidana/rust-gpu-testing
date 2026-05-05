@@ -48,8 +48,8 @@ pub async fn run_fdtd_1d(backend: &GpuBackend) {
 
     let mut f_res = data.estimate_max_timesteps(None);
         if f_res % 2 == 0 { f_res -= 1; }
-    let f_max = data.compute_max_frequency();
-    data.enable_dfts(0.0..=max_pulse_freq, 1001);
+    let f_max = max_pulse_freq;
+    data.enable_dfts(0.0..=f_max, 1001);
 
     data.set_step_count(1);
     println!("{:?}", data.grid_info);
@@ -341,7 +341,7 @@ impl Fdtd1dData {
     }
 
     pub fn enable_dfts(&mut self, frequency_range: RangeInclusive<f32>, resolution: u32) -> &mut Self {
-        let resolution = resolution - (resolution % 2); // resolution must be odd
+        let resolution = resolution + (resolution % 2 == 0) as u32; // resolution must be odd
         self.dft = Some(Dft::new(frequency_range, resolution as usize));
         self
     }
