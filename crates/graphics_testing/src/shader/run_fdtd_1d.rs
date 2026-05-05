@@ -49,7 +49,6 @@ pub async fn run_fdtd_1d(backend: &GpuBackend) {
     let mut f_res = data.estimate_max_timesteps(None);
         if f_res % 2 == 0 { f_res -= 1; }
     let f_max = data.compute_max_frequency();
-    // data.enable_ffts((-f_max)..=f_max, f_res);
     data.enable_dfts(0.0..=max_pulse_freq, 1001);
 
     data.set_step_count(1);
@@ -90,7 +89,7 @@ async fn main_render_loop(
         .translate(pos)
         .set_color(RED);
 
-    // Compute FFT kernels before running simulation
+    // Compute DFT kernels before running simulation
     if let Some(dft) = &mut data.dft {
         buffers.dft_buffers = Some(dft.create_buffers(backend)?);
         let dft_bufs = buffers.dft_buffers.as_mut().unwrap();
@@ -125,6 +124,7 @@ async fn main_render_loop(
                 dft_bufs.reflectance.read(backend, &mut dft.reflectance).await?;
                 dft_bufs.transmittance.read(backend, &mut dft.transmittance).await?;
                 dft_bufs.source.read(backend, &mut dft.source).await?;
+                dft.update_dft_plots();
             }
 
             submit_simulation(
@@ -298,13 +298,6 @@ impl Dft {
     }
 
     pub fn plot_dft(&mut self, egui_ctx: &egui::Context) {
-        // Prepare & normalize DFT plots
-        for i in 0..self.dft_kernels.len() {
-            let src = self.source[i].r as f64 + (self.source[i].r == 0.) as u64 as f64;
-            self.plot.reflectance[i].y = (self.reflectance[i].r as f64 / src).powi(2);
-            self.plot.transmittance[i].y = (self.transmittance[i].r as f64 / src).powi(2);
-        }
-
         egui::Window::new("Discrete Fourier Transforms").show(egui_ctx, |ui| {
             Plot::new("DFT")
                 .legend(Legend::default())
@@ -313,6 +306,15 @@ impl Dft {
                     plot_ui.line(Line::new("Transmittance", PlotPoints::Borrowed(&self.plot.transmittance)));
                 })
         });
+    }
+
+    /// Prepare & normalize DFT plots. Called when DFTs have changed
+    pub fn update_dft_plots(&mut self) {
+        for i in 0..self.dft_kernels.len() {
+            let src = self.source[i].r as f64 + (self.source[i].r == 0.) as u64 as f64;
+            self.plot.reflectance[i].y = (self.reflectance[i].r as f64 / src).powi(2);
+            self.plot.transmittance[i].y = (self.transmittance[i].r as f64 / src).powi(2);
+        }
     }
 
     pub fn create_buffers(&self, backend: &GpuBackend) -> GpuResult<DftBuffers> {
@@ -380,7 +382,7 @@ impl Fdtd1dData {
     /// Estimates the number of timesteps the simulation needs to be considered "finished."
     /// Does NOT consider the resonance of objects in the simulations.
     ///
-    /// You can use this function's output as FFT resolution
+    /// You can use this function's output as DFT resolution
     pub fn estimate_max_timesteps(&mut self, custom_default_material: Option<ElectricMaterial>) -> u32 {
         let default_mat = custom_default_material.unwrap_or(ElectricMaterial::FREE_SPACE);
         let mut n_max = self.objects.iter()
