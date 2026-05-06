@@ -23,54 +23,60 @@ struct GpuKernels {
 }
 
 pub async fn run_fdtd_1d(backend: &GpuBackend) {
-    let max_pulse_freq = 3e9;
 
-    let obj_width = 0.3048; // 1ft wide
-    let eps_r_mat = 12.0_f32;
-    let mu_r_mat = 1.0_f32;
+    // let obj_width = 0.3048; // 1ft wide
+    // let eps_r_mat = 12.0_f32;
+    // let mu_r_mat = 1.0_f32;
+
+    // let obj = ObjectInfo1D {
+    //     width: obj_width,
+    //     position: 0.,
+    //     material: ElectricMaterial::new(eps_r_mat, mu_r_mat),
+    //     color: GREEN
+    // };
+
+    let wavelength_0 = 980e-9;
+    let si_o2_mat = ElectricMaterial::new(1.5, 1.);
+    let si_n_mat = ElectricMaterial::new(2.0, 1.);
+    let si_o2_width = wavelength_0 / (4. * si_o2_mat.n);
+    let si_n_width = wavelength_0 / (4. * si_n_mat.n);
+
+    let widths = [si_o2_width, si_n_width];
+    let mats = [si_o2_mat, si_n_mat];
+    let mut layers = vec![ObjectInfo1D { color: GREEN, ..Default::default() }; 30];
+    let mut curr_pos = 0.;
+    let mut prev_half_width = 0.;
+    for (i, layer) in layers.iter_mut().enumerate() {
+        let mat_i = i % 2;
+        let width = widths[mat_i];
+        let half_width = width/2.;
+        curr_pos += prev_half_width + half_width;
+        layer.material = mats[mat_i];
+        layer.position = curr_pos;
+        layer.width = width;
+
+        prev_half_width = half_width;
+    }
+
+    let max_pulse_freq = MaterialConstants1D::C_0 / wavelength_0 * 1.5;
+    println!("Target Frequency: {}", MaterialConstants1D::C_0 / wavelength_0);
 
     let stability_values = StabilityValues::default();
-
-    let obj = ObjectInfo1D {
-        width: obj_width,
-        position: 0.,
-        material: ElectricMaterial::new(eps_r_mat, mu_r_mat),
-        color: GREEN
-    };
-
-    let transmission_freq = 2.4e9;
-    let anti_refl_mat = ElectricMaterial::new(
-        f32::sqrt(obj.material.eps_r * ElectricMaterial::FREE_SPACE.eps_r),
-        1.
-    );
-    let wavelength_0 = MaterialConstants1D::C_0 / transmission_freq;
-    let anti_refl_width = wavelength_0 / (4. * anti_refl_mat.n);
-    let anti_refl1 = ObjectInfo1D {
-        width: anti_refl_width,
-        position: obj.position - obj.width/2. - anti_refl_width/2.,
-        material: anti_refl_mat,
-        color: CORNFLOWER_BLUE
-    };
-    let anti_refl2 = ObjectInfo1D {
-        position: obj.position + obj.width/2. + anti_refl_width/2.,
-        ..anti_refl1
-    };
 
     let source = GaussianPulse1D::from_max_frequency(max_pulse_freq, 1.);
 
     let mut data = Fdtd1dData::new();
-    data
-        .add_object(obj)
-        .add_object(anti_refl1)
-        .add_object(anti_refl2)
-        .set_source(source);
+    data.set_source(source);
+    for layer in layers.iter().cloned() {
+        data.add_object(layer);
+    }
 
     data.prepare_for_gpu(&stability_values, None);
 
     // let mut f_res = data.estimate_max_timesteps(None);
-    data.enable_dfts((0.0)..=(5e9), 5000);
+    data.enable_dfts((0.0)..=(max_pulse_freq), 5000);
 
-    data.set_step_count(10);
+    data.set_step_count(2);
     println!("{:?}", data.grid_info);
 
     let max_src_val = data.source_vals.iter()
@@ -600,7 +606,7 @@ impl Default for StabilityValues {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct ObjectInfo1D {
     pub width: f32,
     pub position: f32,
