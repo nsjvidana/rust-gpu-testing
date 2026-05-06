@@ -257,15 +257,20 @@ impl Dft {
                 reflectance: plot_points.clone(),
                 transmittance: plot_points.clone(),
                 sum: plot_points,
+                prev_pointer_pos: None
             },
         }
     }
 
     pub fn plot_dft(&mut self, egui_ctx: &egui::Context) {
         egui::Window::new("Reflectance & Transmittance DFTs").show(egui_ctx, |ui| {
+            if let Some(pos) = self.plot.prev_pointer_pos {
+                ui.label(format!("Pointer coords: ({}, {})", pos.x, pos.y));
+            }
             Plot::new("DFT")
                 .legend(Legend::default())
                 .show(ui, |plot_ui| {
+                    self.plot.prev_pointer_pos = plot_ui.pointer_coordinate();
                     plot_ui.line(Line::new("Reflectance", PlotPoints::Borrowed(&self.plot.reflectance)));
                     plot_ui.line(Line::new("Transmittance", PlotPoints::Borrowed(&self.plot.transmittance)));
                     plot_ui.line(Line::new("Reflectance + Transmittance", PlotPoints::Borrowed(&self.plot.sum)));
@@ -310,6 +315,7 @@ pub struct DftPlot {
     pub reflectance: Vec<PlotPoint>,
     pub transmittance: Vec<PlotPoint>,
     pub sum: Vec<PlotPoint>,
+    pub prev_pointer_pos: Option<PlotPoint>,
 }
 
 pub struct DftBuffers {
