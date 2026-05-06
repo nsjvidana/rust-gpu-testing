@@ -12,6 +12,7 @@ use kiss3d::prelude::{Color, SceneNode3d, Window, GREEN, RED, WHITE};
 use shader_crate::fdtd_1d::{Dft1d, DftInfo1D, Fdtd1d, FinishDft1d, GpuSource1D, GridCell1D, GridInfo1D, MaterialConstants1D, PerfectBoundaryData, PrecomputeDftKernels1d};
 use shader_crate::{e_i, GpuComplexPolar};
 use std::ops::{Range, RangeInclusive};
+use rayon::prelude::*;
 
 #[derive(Shader)]
 struct GpuKernels {
@@ -51,7 +52,7 @@ pub async fn run_fdtd_1d(backend: &GpuBackend) {
     let f_max = max_pulse_freq;
     data.enable_dfts(0.0..=f_max, 10001);
 
-    data.set_step_count(50);
+    data.set_step_count(1);
     println!("{:?}", data.grid_info);
 
     let max_src_val = data.source_vals.iter()
@@ -275,12 +276,17 @@ impl Dft {
 
     /// Prepare & normalize DFT plots. Called when DFTs have changed
     pub fn update_dft_plots(&mut self) {
-        for i in 0..self.reflectance.len() {
-            let src = self.source[i].r as f64;
-            self.plot.reflectance[i].y = (self.reflectance[i].r as f64 / src).powi(2);
-            self.plot.transmittance[i].y = (self.transmittance[i].r as f64 / src).powi(2);
-            self.plot.sum[i].y = self.plot.reflectance[i].y + self.plot.transmittance[i].y;
-        }
+        self.plot.reflectance.par_iter_mut()
+            .zip(self.plot.transmittance.par_iter_mut())
+            .zip(self.plot.sum.par_iter_mut())
+            .map(|((r,t), s)| (r, t, s))
+            .enumerate()
+            .for_each(|(i, (refl, trans, sum))| {
+                let src = self.source[i].r as f64;
+                refl.y = (self.reflectance[i].r as f64 / src).powi(2);
+                trans.y = (self.transmittance[i].r as f64 / src).powi(2);
+                sum.y = refl.y + trans.y;
+            });
     }
 
     pub fn create_buffers(&self, backend: &GpuBackend) -> GpuResult<DftBuffers> {
