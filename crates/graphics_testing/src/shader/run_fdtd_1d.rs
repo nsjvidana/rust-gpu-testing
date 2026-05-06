@@ -8,11 +8,11 @@ use kiss3d::camera::OrbitCamera3d;
 use kiss3d::egui;
 use kiss3d::event::{Action, Key};
 use kiss3d::light::Light;
-use kiss3d::prelude::{Color, SceneNode3d, Window, GREEN, RED, WHITE};
-use shader_crate::fdtd_1d::{Dft1d, DftInfo1D, Fdtd1d, FinishDft1d, GpuSource1D, GridCell1D, GridInfo1D, MaterialConstants1D, PerfectBoundaryData, PrecomputeDftKernels1d};
-use shader_crate::{e_i, GpuComplexPolar};
-use std::ops::{Range, RangeInclusive};
+use kiss3d::prelude::{Color, SceneNode3d, Window, CORNFLOWER_BLUE, GREEN, RED, WHITE};
 use rayon::prelude::*;
+use shader_crate::fdtd_1d::{Dft1d, DftInfo1D, Fdtd1d, FinishDft1d, GpuSource1D, GridCell1D, GridInfo1D, MaterialConstants1D, PerfectBoundaryData, PrecomputeDftKernels1d};
+use shader_crate::GpuComplexPolar;
+use std::ops::{Range, RangeInclusive};
 
 #[derive(Shader)]
 struct GpuKernels {
@@ -23,11 +23,11 @@ struct GpuKernels {
 }
 
 pub async fn run_fdtd_1d(backend: &GpuBackend) {
-    let max_pulse_freq = 1e9;
+    let max_pulse_freq = 3e9;
 
     let obj_width = 0.3048; // 1ft wide
-    let eps_r_mat = 6.0_f32;
-    let mu_r_mat = 2.0_f32;
+    let eps_r_mat = 12.0_f32;
+    let mu_r_mat = 1.0_f32;
 
     let stability_values = StabilityValues::default();
 
@@ -38,20 +38,39 @@ pub async fn run_fdtd_1d(backend: &GpuBackend) {
         color: GREEN
     };
 
+    let transmission_freq = 2.4e9;
+    let anti_refl_mat = ElectricMaterial::new(
+        f32::sqrt(obj.material.eps_r * ElectricMaterial::FREE_SPACE.eps_r),
+        1.
+    );
+    let wavelength_0 = MaterialConstants1D::C_0 / transmission_freq;
+    let anti_refl_width = wavelength_0 / (4. * anti_refl_mat.n);
+    let anti_refl1 = ObjectInfo1D {
+        width: anti_refl_width,
+        position: obj.position - obj.width/2. - anti_refl_width/2.,
+        material: anti_refl_mat,
+        color: CORNFLOWER_BLUE
+    };
+    let anti_refl2 = ObjectInfo1D {
+        position: obj.position + obj.width/2. + anti_refl_width/2.,
+        ..anti_refl1
+    };
+
     let source = GaussianPulse1D::from_max_frequency(max_pulse_freq, 1.);
 
     let mut data = Fdtd1dData::new();
     data
         .add_object(obj)
+        .add_object(anti_refl1)
+        .add_object(anti_refl2)
         .set_source(source);
 
     data.prepare_for_gpu(&stability_values, None);
 
-    let mut f_res = data.estimate_max_timesteps(None);
-    let f_max = max_pulse_freq;
-    data.enable_dfts(0.0..=f_max, f_res);
+    // let mut f_res = data.estimate_max_timesteps(None);
+    data.enable_dfts((0.0)..=(5e9), 5000);
 
-    data.set_step_count(1);
+    data.set_step_count(10);
     println!("{:?}", data.grid_info);
 
     let max_src_val = data.source_vals.iter()
