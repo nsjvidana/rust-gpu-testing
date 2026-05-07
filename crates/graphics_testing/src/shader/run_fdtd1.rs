@@ -8,18 +8,18 @@ use kiss3d::camera::OrbitCamera3d;
 use kiss3d::egui;
 use kiss3d::event::{Action, Key};
 use kiss3d::light::Light;
-use kiss3d::prelude::{Color, SceneNode3d, Window, CORNFLOWER_BLUE, GREEN, RED, WHITE};
+use kiss3d::prelude::{Color, SceneNode3d, Window, GREEN, RED, WHITE};
 use rayon::prelude::*;
-use shader_crate::fdtd_1d::{Dft1d, DftInfo1D, Fdtd1d, FinishDft1d, GpuSource1D, GridCell1D, GridInfo1D, MaterialConstants1D, PerfectBoundaryData, PrecomputeDftKernels1d};
+use shader_crate::fdtd1::{Dft1, DftInfo1, Fdtd1, FinishDft1, GpuSource1, GridCell1, GridInfo1, MaterialConstants1, PerfectBoundaryData, PrecomputeDftKernels1};
 use shader_crate::GpuComplexPolar;
 use std::ops::{Range, RangeInclusive};
 
 #[derive(Shader)]
 struct GpuKernels {
-    pub fdtd_1d: Fdtd1d,
-    pub precompute_dft_kernels1d: PrecomputeDftKernels1d,
-    pub dft1d: Dft1d,
-    pub finish_dft1d: FinishDft1d,
+    pub fdtd_1d: Fdtd1,
+    pub precompute_dft_kernels1d: PrecomputeDftKernels1,
+    pub dft1d: Dft1,
+    pub finish_dft1d: FinishDft1,
 }
 
 pub async fn run_fdtd_1d(backend: &GpuBackend) {
@@ -43,7 +43,7 @@ pub async fn run_fdtd_1d(backend: &GpuBackend) {
 
     let widths = [si_o2_width, si_n_width];
     let mats = [si_o2_mat, si_n_mat];
-    let mut layers = vec![ObjectInfo1D { color: GREEN, ..Default::default() }; 30];
+    let mut layers = vec![ObjectInfo1 { color: GREEN, ..Default::default() }; 30];
     let mut curr_pos = 0.;
     let mut prev_half_width = 0.;
     for (i, layer) in layers.iter_mut().enumerate() {
@@ -58,14 +58,14 @@ pub async fn run_fdtd_1d(backend: &GpuBackend) {
         prev_half_width = half_width;
     }
 
-    let max_pulse_freq = MaterialConstants1D::C_0 / wavelength_0 * 1.5;
-    println!("Target Frequency: {}", MaterialConstants1D::C_0 / wavelength_0);
+    let max_pulse_freq = MaterialConstants1::C_0 / wavelength_0 * 1.5;
+    println!("Target Frequency: {}", MaterialConstants1::C_0 / wavelength_0);
 
     let stability_values = StabilityValues::default();
 
-    let source = GaussianPulse1D::from_max_frequency(max_pulse_freq, 1.);
+    let source = GaussianPulse1::from_max_frequency(max_pulse_freq, 1.);
 
-    let mut data = Fdtd1dData::new();
+    let mut data = Fdtd1Data::new();
     data.set_source(source);
     for layer in layers.iter().cloned() {
         data.add_object(layer);
@@ -89,7 +89,7 @@ pub async fn run_fdtd_1d(backend: &GpuBackend) {
 
 async fn main_render_loop(
     backend: &GpuBackend,
-    mut data: Fdtd1dData,
+    mut data: Fdtd1Data,
     max_src_val: f32,
 ) -> Result<(), GpuBackendError> {
     let grid_info = &data.grid_info;
@@ -132,7 +132,7 @@ async fn main_render_loop(
     }
 
     let mut abs_max_val = 0.;
-    let mut cells_out = vec![GridCell1D::default(); grid_info.num_cells as usize];
+    let mut cells_out = vec![GridCell1::default(); grid_info.num_cells as usize];
     let mut boundary_out = vec![PerfectBoundaryData::default()];
     let mut prev_action = Action::Release;
     while window.render_3d(&mut scene, &mut camera).await {
@@ -205,8 +205,8 @@ async fn main_render_loop(
 fn submit_simulation(
     backend: &GpuBackend,
     gpu_kernels: &GpuKernels,
-    buffers: &mut Fdtd1dBuffers,
-    grid_info: &GridInfo1D
+    buffers: &mut Fdtd1Buffers,
+    grid_info: &GridInfo1
 ) -> Result<(), GpuBackendError> {
     let mut encoder = backend.begin_encoding();
 
@@ -326,7 +326,7 @@ impl Dft {
                 transmittance: self.transmittance.create_gpu_buffer_readable(backend)?,
                 source: self.source.create_gpu_buffer_readable(backend)?,
                 kernels: kernels.create_gpu_buffer(backend)?,
-                dft_info: DftInfo1D {
+                dft_info: DftInfo1 {
                     f_start: *self.freq_range.start(),
                     f_increment: self.f_increment
                 }.create_gpu_uniform(backend)?,
@@ -348,30 +348,31 @@ pub struct DftBuffers {
     pub transmittance: GpuBufferReadable<GpuComplexPolar>,
     pub source: GpuBufferReadable<GpuComplexPolar>,
     pub kernels: GpuBuffer<GpuComplexPolar>,
-    pub dft_info: GpuBuffer<DftInfo1D>,
+    pub dft_info: GpuBuffer<DftInfo1>,
     pub dispatch_grid: [u32; 3],
 }
 
 #[derive(Default)]
-pub struct Fdtd1dData {
-    pub cells: Vec<GridCell1D>,
-    pub materials: Vec<MaterialConstants1D>,
-    pub source: GaussianPulse1D,
+pub struct Fdtd1Data {
+    pub cells: Vec<GridCell1>,
+    pub materials: Vec<MaterialConstants1>,
+    pub source: GaussianPulse1,
     pub source_vals: Vec<f32>,
-    pub source_gpu: GpuSource1D,
-    pub grid_info: GridInfo1D,
+    pub source_gpu: GpuSource1,
+    pub grid_info: GridInfo1,
 
     pub dft: Option<Dft>,
 
-    pub objects: Vec<ObjectInfo1D>,
+    pub objects: Vec<ObjectInfo1>,
     /// The range of cells each object takes
     pub object_cell_indices: Vec<Range<usize>>,
 }
 
-impl Fdtd1dData {
+
+impl Fdtd1Data {
     pub fn new() -> Self {
         Self {
-            grid_info: GridInfo1D::max_values(0.),
+            grid_info: GridInfo1::max_values(0.),
             ..Default::default()
         }
     }
@@ -396,7 +397,7 @@ impl Fdtd1dData {
 
         let max_src_duration = self.source.tau * 12.;
         // time it takes to the slowest wave to propagate across the grid (a worst-case scenario)
-        let t_prop = n_max/MaterialConstants1D::C_0 * self.grid_info.num_cells as f32;
+        let t_prop = n_max/ MaterialConstants1::C_0 * self.grid_info.num_cells as f32;
         ((max_src_duration + t_prop) / self.grid_info.dt).ceil() as u32
     }
 
@@ -427,9 +428,9 @@ impl Fdtd1dData {
         let dz = self.grid_info.cell_size;
 
         // Recompute material constants with stable dt
-        self.materials.resize(materials.len(), MaterialConstants1D::default());
+        self.materials.resize(materials.len(), MaterialConstants1::default());
         for (mat_consts, mat) in self.materials.iter_mut().zip(materials) {
-            *mat_consts = MaterialConstants1D::new(mat.eps_r, mat.mu_r, dt);
+            *mat_consts = MaterialConstants1::new(mat.eps_r, mat.mu_r, dt);
         }
 
         // Update grid dimensions & initialize cells
@@ -447,7 +448,7 @@ impl Fdtd1dData {
             dz * stability.spacer_region_cells as f32 * 2. + // Both spacer regions
             dz * ((max_pos - min_pos)/dz).abs().ceil(); // Account for objects & sources
         self.set_dimensions(dimensions);
-        self.cells.resize(self.grid_info.num_cells as usize, GridCell1D::default());
+        self.cells.resize(self.grid_info.num_cells as usize, GridCell1::default());
 
         // Set grid cell material indices
         let offset = stability.spacer_region_cells + 2;
@@ -477,7 +478,7 @@ impl Fdtd1dData {
         self.source_vals.extend_from_slice(&vals);
         let end_idx = self.source_vals.len() as u32 - 1;
         let cell_idx = 2; // Sources are always located in the first spacer region's 1st cell
-        self.source_gpu = GpuSource1D {
+        self.source_gpu = GpuSource1 {
             start_idx,
             end_idx,
             curr_idx: 0,
@@ -492,7 +493,7 @@ impl Fdtd1dData {
             .map(|m| m.n)
             .max_by(|a, b| a.total_cmp(b))
             .unwrap_or(1.);
-        let min_wavelen = MaterialConstants1D::C_0 / (f_max * n_max);
+        let min_wavelen = MaterialConstants1::C_0 / (f_max * n_max);
         self.grid_info.cell_size = self.grid_info.cell_size
             .min(min_wavelen / cells_per_wavelength as f32);
         self.update_cell_count()
@@ -519,7 +520,7 @@ impl Fdtd1dData {
     }
 
     pub fn compute_cfl_upper_bound(&self, n_min: f32, safety_margin: f32) -> f32 {
-        (n_min * self.grid_info.cell_size) / (safety_margin * MaterialConstants1D::C_0)
+        (n_min * self.grid_info.cell_size) / (safety_margin * MaterialConstants1::C_0)
     }
 
     pub fn enforce_stability_conditions(&mut self, stability: &StabilityValues, n_boundary: f32) -> &mut Self {
@@ -545,14 +546,14 @@ impl Fdtd1dData {
         self
     }
 
-    pub fn create_buffers(&self, backend: &GpuBackend) -> Result<Fdtd1dBuffers, GpuBackendError> {
+    pub fn create_buffers(&self, backend: &GpuBackend) -> Result<Fdtd1Buffers, GpuBackendError> {
         let timestep_counter = 0;
         let mut dft_buffers = None;
         if let Some(dft) = &self.dft {
             dft_buffers = Some(dft.create_buffers(backend)?);
         }
 
-        Ok(Fdtd1dBuffers {
+        Ok(Fdtd1Buffers {
             cells: self.cells.create_gpu_buffer_readable(backend)?,
             materials: self.materials.create_gpu_buffer(backend)?,
             source_vals: self.source_vals.create_gpu_buffer(backend)?,
@@ -565,18 +566,18 @@ impl Fdtd1dData {
         })
     }
 
-    pub fn add_object(&mut self, obj: ObjectInfo1D) -> &mut Self {
+    pub fn add_object(&mut self, obj: ObjectInfo1) -> &mut Self {
         self.objects.push(obj);
         self
     }
 
-    pub fn set_source(&mut self, src: GaussianPulse1D) -> &mut Self {
+    pub fn set_source(&mut self, src: GaussianPulse1) -> &mut Self {
         self.source = src;
         self
     }
 
     /// Returns starting cell index and the width of the object in grid cells: `(start_idx, idx_width)`
-    pub fn get_obj_indices(&self, obj: &ObjectInfo1D) -> (usize, usize) {
+    pub fn get_obj_indices(&self, obj: &ObjectInfo1) -> (usize, usize) {
         let center_idx = (obj.position / self.grid_info.cell_size) as usize;
         let idx_width = (obj.width / self.grid_info.cell_size).ceil() as usize;
         let start = (center_idx - idx_width.div_ceil(2)).max(0);
@@ -607,7 +608,7 @@ impl Default for StabilityValues {
 }
 
 #[derive(Clone, Default)]
-pub struct ObjectInfo1D {
+pub struct ObjectInfo1 {
     pub width: f32,
     pub position: f32,
     pub material: ElectricMaterial,
@@ -641,25 +642,25 @@ impl Default for ElectricMaterial {
     fn default() -> Self { Self::FREE_SPACE }
 }
 
-pub struct Fdtd1dBuffers {
-    pub cells: GpuBufferReadable<GridCell1D>,
-    pub materials: GpuBuffer<MaterialConstants1D>,
+pub struct Fdtd1Buffers {
+    pub cells: GpuBufferReadable<GridCell1>,
+    pub materials: GpuBuffer<MaterialConstants1>,
     pub source_vals: GpuBuffer<f32>,
-    pub source: GpuBuffer<GpuSource1D>,
+    pub source: GpuBuffer<GpuSource1>,
     pub perfect_boundary_data: GpuBufferReadable<PerfectBoundaryData>,
-    pub grid_info: GpuBuffer<GridInfo1D>,
+    pub grid_info: GpuBuffer<GridInfo1>,
     pub dft_buffers: Option<DftBuffers>,
     pub timestep_counter: GpuBuffer<u32>,
 }
 
 #[derive(Debug)]
-pub struct GaussianPulse1D {
+pub struct GaussianPulse1 {
     pub amplitude: f32,
     pub tau: f32,
     pub t_0: f32,
 }
 
-impl GaussianPulse1D {
+impl GaussianPulse1 {
     /// Create a Gaussian Pulse that has a maximum frequency of `max_frequency`
     pub fn from_max_frequency(
         max_frequency: f32,
@@ -674,7 +675,7 @@ impl GaussianPulse1D {
         }
     }
 
-    pub fn compute_source_values(&self, sim_data: &Fdtd1dData) -> Vec<f32> {
+    pub fn compute_source_values(&self, sim_data: &Fdtd1Data) -> Vec<f32> {
         let approx_pulse_duration = 12. * self.tau;
         let num_vals = (approx_pulse_duration / sim_data.grid_info.dt).ceil() as u32;
         let mut vals = vec![0.; num_vals as usize];
@@ -692,7 +693,7 @@ impl GaussianPulse1D {
     }
 }
 
-impl Default for GaussianPulse1D {
+impl Default for GaussianPulse1 {
     fn default() -> Self {
         Self {
             amplitude: 0.,

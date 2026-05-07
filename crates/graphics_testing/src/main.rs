@@ -8,7 +8,7 @@ use khal::backend::{Backend, Buffer, Encoder, GpuBackend, WebGpu};
 use khal::{AsGpuSlice, Shader};
 use kiss3d::prelude::*;
 use rand::{RngExt, SeedableRng};
-use shader::run_fdtd_1d;
+use shader::run_fdtd1;
 use std::ops::{Div, Mul};
 
 pub static SPIRV_DIR: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/shaders-spirv");
@@ -19,5 +19,5 @@ async fn main() {
     let backend = GpuBackend::WebGpu(webgpu);
 
     // run_fdtd_3d::run_fdtd_3d(&backend).await;
-    run_fdtd_1d::run_fdtd_1d(&backend).await;
+    run_fdtd1::run_fdtd_1d(&backend).await;
 }
