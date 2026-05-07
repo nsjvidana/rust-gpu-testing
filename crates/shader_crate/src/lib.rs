@@ -5,7 +5,6 @@ use bytemuck::{Pod, Zeroable};
 use khal_std::num_traits::Float;
 
 pub mod fdtd1;
-pub mod fdtd_3d;
 
 /// Select between two numerical values `tru` and `fals` of type `typ` depending on a bool `b`.
 ///
