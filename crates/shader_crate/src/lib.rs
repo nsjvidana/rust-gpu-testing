@@ -1,10 +1,11 @@
 #![cfg_attr(target_arch = "spirv", no_std)]
 
-use khal_std::glamx::{UVec3, Vec2};
+use khal_std::glamx::{USizeVec3, UVec3, Vec2};
 use bytemuck::{Pod, Zeroable};
 use khal_std::num_traits::Float;
 
 pub mod fdtd1;
+pub mod fdtd2;
 
 /// Select between two numerical values `tru` and `fals` of type `typ` depending on a bool `b`.
 ///
@@ -18,15 +19,15 @@ macro_rules! select_val {
     }};
 }
 
-pub fn flat_idx_to_vector(idx: u32, grid_dim: UVec3) -> UVec3 {
-    UVec3::new(
+pub fn flat_idx_to_vector(idx: usize, grid_dim: USizeVec3) -> USizeVec3 {
+    USizeVec3::new(
         idx % grid_dim.x,
         (idx / grid_dim.x) % grid_dim.y,
         idx / (grid_dim.x * grid_dim.y),
     )
 }
 
-pub fn vector_to_flat_idx(v: UVec3, grid_dim: UVec3) -> u32 {
+pub fn vector_to_flat_idx(v: USizeVec3, grid_dim: USizeVec3) -> usize {
     v.z * grid_dim.x * grid_dim.y +
         v.y * grid_dim.x +
         v.x
