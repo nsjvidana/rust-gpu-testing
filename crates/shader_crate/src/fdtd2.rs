@@ -7,9 +7,9 @@ use crate::vector_to_flat_idx;
 #[spirv(compute(threads(8, 8, 1)))]
 pub fn fdtd2(
     #[spirv(global_invocation_id)] id: UVec3,
-    #[spirv(storage_buffer, descriptor_set = 0, binding = /*TODO*/)] cells: &mut [GridCell2],
-    #[spirv(storage_buffer, descriptor_set = 0, binding = /*TODO*/)] materials: &mut [MaterialConstants2],
-    #[spirv(uniform, descriptor_set = 0, binding = /*TODO*/)] grid: &GridInfo2,
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 0)] cells: &mut [GridCell2],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] materials: &[MaterialConstants2],
+    #[spirv(uniform, descriptor_set = 0, binding = 2)] grid: &GridInfo2,
 ) {
     let id3 = id.as_usizevec3();
     let id = id3.xy();
@@ -37,7 +37,7 @@ pub fn fdtd2(
 
     // Update Dn/En from H
     let not_dn_boundary = id.cmpgt(USizeVec2::ZERO);
-    let h_1_indices = USizeVec2::splat(i).saturating_sub(i_incr);
+    let h_1_indices = if i > 0 { USizeVec2::splat(i).wrapping_sub(i_incr) } else { USizeVec2::ZERO };
     let h = cells[i].h;
     let h_x1_y = if not_dn_boundary.x { cells[h_1_indices.x].h.y } else { 0. };
     let h_y1_x = if not_dn_boundary.y { cells[h_1_indices.y].h.x } else { 0. };
@@ -68,11 +68,14 @@ pub struct GridCell2 {
     pub en_z: f32,
     /// The index of the material this grid cell has
     pub material_i: u32,
+    pub _padding: [u32; 3],
 }
 
+// TODO: rename to UpdateConsts2 probably
 #[derive(Copy, Clone, Pod, Zeroable, Default)]
 #[repr(C)]
 pub struct MaterialConstants2 {
     pub h_update_coeff: Vec2,
     pub en_z_update_coeff: f32,
+    pub _padding: [u32; 1]
 }
