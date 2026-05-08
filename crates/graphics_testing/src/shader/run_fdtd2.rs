@@ -1,10 +1,11 @@
 use crate::prelude::GpuResult;
-use crate::util::{CreateGpuBuffer, CreateGpuBufferReadable, GpuBufferReadable};
+use crate::util::{arrow_polyline, bb_polyline, CreateGpuBuffer, CreateGpuBufferReadable, GpuBufferReadable};
 use glam::{USizeVec3, UVec2, Vec2};
 use khal::backend::{Backend, DispatchGrid, Encoder, GpuBackend, GpuBuffer};
 use khal::Shader;
+use kiss3d::prelude::*;
 use shader_crate::fdtd2::{Fdtd2, GridCell2, GridInfo2, MaterialConstants2};
-use shader_crate::vector_to_flat_idx;
+use shader_crate::{flat_idx_to_vector, vector_to_flat_idx};
 
 #[derive(Shader)]
 struct GpuKernels {
@@ -16,6 +17,7 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
     let mut data = FdtdData2::new();
 
     let pulse_freq = 1e6;
+    let pulse_amplitude = 1.;
 
     data.min_wavelength(pulse_freq, 10)
         .cfl_condition();
@@ -23,9 +25,90 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
     data.grid.cells.resize(data.grid.n_cells.element_product() as usize, GridCell2::default());
 
     let mut runner = data.create_gpu(1, backend)?;
+
+    // Set up window
+    let z_far = (data.grid.n_cells.as_vec2() * data.grid.cell_size).max_element() * 10.;
+    let mut window = Window::new("FDTD 2D").await;
+    let grid_dims = data.grid.cell_size * data.grid.n_cells.as_vec2();
+    let mut camera = OrbitCamera3d::new_with_frustum(
+        core::f32::consts::PI / 4.0, data.grid.cell_size.min_element(), z_far,
+        Vec3::splat(grid_dims.max_element()),
+        Vec3::from((grid_dims / 2., 0.))
+    );
+        camera.set_up_axis_dir(Vec3::Z);
+    let mut scene = SceneNode3d::empty();
+    scene
+        .add_light(Light::point(100.0))
+        .set_position(Vec3::new(0.0, 2.0, -2.0));
+    let mut render_data = RenderData2::new(&data, pulse_amplitude, 0.01);
+    // Main render loop
+    while window.render_3d(&mut scene, &mut camera).await {
+        if window.get_key(Key::T) == Action::Press {
+            backend.synchronize()?;
+            runner.cells.read(backend, &mut data.grid.cells).await?;
+            runner.submit_step(&gpu_kernels.fdtd2, backend)?;
+        }
+        
+        render_data.render_simulation(&mut window, &data);
+    }
     runner.submit_step(&gpu_kernels.fdtd2, backend)?;
 
     Ok(())
+}
+
+pub struct RenderData2 {
+    pub en_arrows: Vec<(Vec3, Polyline3d)>,
+    pub en_color: Color,
+    pub grid_bb: Polyline3d,
+    pub max_en_val: f32,
+    pub alpha_threshold: f32,
+}
+
+impl RenderData2 {
+    pub fn new(data: &FdtdData2, max_src_val: f32, alpha_threshold: f32) -> Self {
+        let grid = &data.grid;
+        let en_color = RED;
+        let en_arrow = arrow_polyline(Vec3::ZERO, Vec3::Z * grid.cell_size.length())
+            .with_color(en_color);
+        let n_cells3 = USizeVec3::from((grid.n_cells.as_usizevec2(), 0));
+        let cell_size3 = Vec3::from((grid.cell_size, 0.));
+
+        let grid_bb = bb_polyline(
+            Vec3::from(cell_size3 * n_cells3.as_vec3()),
+            Vec3::ZERO
+        );
+
+        Self {
+            en_arrows: (0..grid.cells.len())
+                .map(|i| {
+                    let i3 = flat_idx_to_vector(i, n_cells3);
+                    let c_pos = i3.as_vec3() * cell_size3;
+                    let polyline = en_arrow.clone()
+                        .with_transform(Pose3::from_translation(c_pos))
+                        .with_color(en_color);
+                    (c_pos, polyline)
+                })
+                .collect(),
+            max_en_val: max_src_val,
+            grid_bb,
+            en_color,
+            alpha_threshold
+        }
+    }
+
+    pub fn render_simulation(&mut self, window: &mut Window, data: &FdtdData2) {
+        for (c, (_, arrow)) in data.grid.cells.iter()
+            .zip(self.en_arrows.iter_mut())
+        {
+            let alpha = c.en_z / self.max_en_val;
+            arrow.color = self.en_color.with_alpha(alpha);
+            if alpha > self.alpha_threshold {
+                window.draw_polyline(arrow);
+            }
+        }
+
+        window.draw_polyline(&self.grid_bb);
+    }
 }
 
 pub struct FdtdData2 {
