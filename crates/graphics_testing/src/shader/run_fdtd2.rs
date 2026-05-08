@@ -1,18 +1,31 @@
+use crate::prelude::GpuResult;
+use crate::util::{CreateGpuBuffer, CreateGpuBufferReadable, GpuBufferReadable};
 use glam::{USizeVec3, UVec2, Vec2};
 use khal::backend::{Backend, DispatchGrid, Encoder, GpuBackend, GpuBuffer};
 use khal::Shader;
 use shader_crate::fdtd2::{Fdtd2, GridCell2, GridInfo2, MaterialConstants2};
 use shader_crate::vector_to_flat_idx;
-use crate::prelude::GpuResult;
-use crate::util::{CreateGpuBuffer, CreateGpuBufferReadable, GpuBufferReadable};
 
 #[derive(Shader)]
 struct GpuKernels {
     fdtd2: Fdtd2
 }
 
-pub async fn run_fdtd2(backend: &GpuBackend) {
-    
+pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
+    let gpu_kernels = GpuKernels::from_backend(backend)?;
+    let mut data = FdtdData2::new();
+
+    let pulse_freq = 1e6;
+
+    data.min_wavelength(pulse_freq, 10)
+        .cfl_condition();
+    data.grid.n_cells = UVec2::new(20, 10);
+    data.grid.cells.resize(data.grid.n_cells.element_product() as usize, GridCell2::default());
+
+    let mut runner = data.create_gpu(1, backend)?;
+    runner.submit_step(&gpu_kernels.fdtd2, backend)?;
+
+    Ok(())
 }
 
 pub struct FdtdData2 {
@@ -22,6 +35,14 @@ pub struct FdtdData2 {
 }
 
 impl FdtdData2 {
+    pub fn new() -> Self {
+        Self {
+            dt: f32::MAX,
+            grid: FdtdGrid2::new(),
+            materials: vec![],
+        }
+    }
+
     pub fn min_wavelength(&mut self, f_max: f32, cells_per_wavelength: usize) -> &mut Self {
         let n_max = self.materials.iter()
             .max_by(|m1, m2| m1.n.total_cmp(&m2.n))
@@ -46,8 +67,18 @@ impl FdtdData2 {
         self
     }
 
-    pub fn create_gpu(&self, steps_per_submission: usize, backend: &GpuBackend) -> GpuResult<GpuFdtd2> {
+    pub fn prepare_materials(&mut self) -> &mut Self {
+        if self.materials.is_empty() {
+            self.materials.push(ElectricMaterial2::FREE_SPACE);
+        }
+        // TODO: include object materials
+        self
+    }
+
+    pub fn create_gpu(&mut self, steps_per_submission: usize, backend: &GpuBackend) -> GpuResult<GpuFdtd2> {
         let n_cells3 = USizeVec3::from((self.grid.n_cells.as_usizevec2(), 0));
+        self.prepare_materials();
+
         let gpu_fdtd = GpuFdtd2 {
             cells: self.grid.cells.create_gpu_buffer_readable(backend)?,
             grid: GridInfo2 {
@@ -109,6 +140,16 @@ pub struct FdtdGrid2 {
     pub n_cells: UVec2,
 }
 
+impl FdtdGrid2 {
+    pub fn new() -> Self {
+        Self {
+            cells: vec![],
+            cell_size: Vec2::MAX,
+            n_cells: UVec2::new(0, 0),
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 pub struct ElectricMaterial2 {
     /// Relative Magnetic Permeability (X & Y component of tensor diagonal)
@@ -116,14 +157,32 @@ pub struct ElectricMaterial2 {
     /// Relative Electric Permittivity (Z component of tensor diagonal)
     pub eps_r_z: f32,
     /// Refractive Index
-    pub n: f32,
     /// Impedance
+    pub n: f32,
     pub impedance: f32,
 }
 
 impl ElectricMaterial2 {
     /// Speed of EM wave in free space
     pub const C_0: f32 = 299792458.0;
+    pub const EPS_0: f32 = 8.8541878188e-12;
+    pub const MU_0: f32 = 1.25663706127e-6;
+    pub const IMPEDANCE_0: f32 = 376.730313412;
+    pub const FREE_SPACE: Self = Self {
+        eps_r_z: Self::EPS_0,
+        mu_r: Vec2::splat(Self::MU_0),
+        n: 1.,
+        impedance: Self::IMPEDANCE_0,
+    };
+
+    pub fn new_linear(eps_r_z: f32, mu_r: f32) -> Self {
+        Self {
+            mu_r: Vec2::splat(mu_r),
+            eps_r_z,
+            n: (eps_r_z * mu_r).sqrt(),
+            impedance: f32::sqrt((Self::MU_0 * mu_r) / (Self::EPS_0 * eps_r_z)),
+        }
+    }
 
     pub fn to_gpu(self, dt: f32) -> MaterialConstants2 {
         let c_0_dt = Self::C_0 * dt;
