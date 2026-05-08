@@ -14,9 +14,10 @@ pub fn fdtd2(
     let id3 = id.as_usizevec3();
     let id = id3.xy();
     let n_cells = grid.n_cells.as_usizevec2();
-    let n_cells3 = USizeVec3::from((n_cells, 0));
+    let n_cells3 = USizeVec3::from((n_cells, 1));
     // There's probably no workgroup barriers needed for 2d fdtd so just return at extra invocations
-    if id3.cmpge(n_cells3).any() { return; }
+    let cmp_i = id.cmpge(n_cells);
+    if cmp_i.any() || id3.z > 0 { return; }
 
     let i = vector_to_flat_idx(id3, n_cells3);
     let mat = materials[cells[i].material_i as usize];
@@ -55,6 +56,7 @@ pub struct GridInfo2 {
     /// Used for incrementing array index to access neighboring cells when computing curl.
     pub i_incr: UVec2,
     pub dn_z_update_coeff: f32,
+    pub _padding: u32
 }
 
 #[derive(Copy, Clone, Pod, Zeroable, Default)]

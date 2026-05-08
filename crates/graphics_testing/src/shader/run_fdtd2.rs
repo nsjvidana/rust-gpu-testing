@@ -24,12 +24,15 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
     data.grid.n_cells = UVec2::new(20, 10);
     data.grid.cells.resize(data.grid.n_cells.element_product() as usize, GridCell2::default());
 
+    // TODO: remove this test value
+    data.grid.cells[30].en_z = pulse_amplitude;
+
     let mut runner = data.create_gpu(1, backend)?;
 
     // Set up window
-    let z_far = (data.grid.n_cells.as_vec2() * data.grid.cell_size).max_element() * 10.;
     let mut window = Window::new("FDTD 2D").await;
     let grid_dims = data.grid.cell_size * data.grid.n_cells.as_vec2();
+    let z_far = (data.grid.n_cells.as_vec2() * data.grid.cell_size).max_element() * 10.;
     let mut camera = OrbitCamera3d::new_with_frustum(
         core::f32::consts::PI / 4.0, data.grid.cell_size.min_element(), z_far,
         Vec3::splat(grid_dims.max_element()),
@@ -70,7 +73,7 @@ impl RenderData2 {
         let en_color = RED;
         let en_arrow = arrow_polyline(Vec3::ZERO, Vec3::Z * grid.cell_size.length())
             .with_color(en_color);
-        let n_cells3 = USizeVec3::from((grid.n_cells.as_usizevec2(), 0));
+        let n_cells3 = USizeVec3::from((grid.n_cells.as_usizevec2(), 1));
         let cell_size3 = Vec3::from((grid.cell_size, 0.));
 
         let grid_bb = bb_polyline(
@@ -159,7 +162,7 @@ impl FdtdData2 {
     }
 
     pub fn create_gpu(&mut self, steps_per_submission: usize, backend: &GpuBackend) -> GpuResult<GpuFdtd2> {
-        let n_cells3 = USizeVec3::from((self.grid.n_cells.as_usizevec2(), 0));
+        let n_cells3 = USizeVec3::from((self.grid.n_cells.as_usizevec2(), 1));
         self.prepare_materials();
 
         let gpu_fdtd = GpuFdtd2 {
@@ -172,13 +175,14 @@ impl FdtdData2 {
                     vector_to_flat_idx(USizeVec3::Y, n_cells3) as u32
                 ),
                 dn_z_update_coeff: ElectricMaterial2::C_0 * self.dt,
+                _padding: 0
             }.create_gpu_uniform(backend)?,
             materials: self.materials.iter()
                 .map(|m| m.to_gpu(self.dt))
                 .collect::<Vec<_>>()
                 .create_gpu_buffer(backend)?,
             dispatch_grid: n_cells3.map(|v| v.div_ceil(8)).as_uvec3().to_array(),
-            steps_per_submission
+            steps_per_submission,
         };
 
         Ok(gpu_fdtd)
