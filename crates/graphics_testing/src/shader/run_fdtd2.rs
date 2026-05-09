@@ -21,7 +21,7 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
     let pulse_amplitude = 1.;
 
     data.min_wavelength(pulse_freq, 20)
-        .cfl_condition(1.);
+        .cfl_condition(2.);
     data.grid.n_cells = UVec2::new(20, 10);
     data.grid.cells.resize(data.grid.n_cells.element_product() as usize, GridCell2::default());
     data.source = GaussianPulse2::from_max_frequency(pulse_freq, pulse_amplitude);
@@ -29,7 +29,7 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
     println!("dt: {:?}", data.dt);
     println!("cell_size: {:?}", data.grid.cell_size);
     let mut runner = data.create_gpu(1, backend)?;
-    runner.steps_per_submission = 30;
+    runner.steps_per_submission = 1;
 
     // Set up window
     let mut window = Window::new("FDTD 2D").await;
@@ -119,8 +119,14 @@ impl RenderData2 {
         for (c, (_, arrow)) in data.grid.cells.iter()
             .zip(self.en_arrows.iter_mut())
         {
-            let alpha = c.en_z / self.max_en_val;
+            let alpha = c.en_z.abs() / self.max_en_val;
             arrow.color = self.en_color.with_alpha(alpha);
+
+            let pos = arrow.transform.translation;
+            let angle = if c.en_z.is_sign_negative() { core::f32::consts::PI }
+                else { 0. };
+            arrow.transform = Pose3::new(pos, Vec3::Y * angle);
+
             if alpha > self.alpha_threshold {
                 window.draw_polyline(arrow);
             }
@@ -167,7 +173,7 @@ impl FdtdData2 {
             .sqrt();
         let safety_margin = safety_margin.max(1.);
         self.dt = self.dt.min(
-            core::f32::consts::FRAC_1_PI / (ElectricMaterial2::C_0 * denom_term_2 * safety_margin)
+            1. / (ElectricMaterial2::C_0 * denom_term_2 * safety_margin)
         );
         self
     }
