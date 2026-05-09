@@ -100,7 +100,7 @@ impl RenderData2 {
         Self {
             en_arrows: (0..grid.cells.len())
                 .map(|i| {
-                    let i3 = flat_idx_to_vector(i, n_cells3);
+                    let i3 = flat_idx_to_vector!(i, n_cells3, USizeVec3);
                     let c_pos = i3.as_vec3() * cell_size3;
                     let polyline = en_arrow.clone()
                         .with_transform(Pose3::from_translation(c_pos))
@@ -192,8 +192,8 @@ impl FdtdData2 {
                 n_cells: self.grid.n_cells,
                 cell_size: self.grid.cell_size,
                 i_incr: UVec2::new(
-                    vector_to_flat_idx(USizeVec3::X, n_cells3) as u32,
-                    vector_to_flat_idx(USizeVec3::Y, n_cells3) as u32
+                    vector_to_flat_idx!(USizeVec3::X, n_cells3) as u32,
+                    vector_to_flat_idx!(USizeVec3::Y, n_cells3) as u32
                 ),
                 dn_z_update_coeff: ElectricMaterial2::C_0 * self.dt,
                 _padding: 0

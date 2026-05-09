@@ -19,19 +19,39 @@ macro_rules! select_val {
     }};
 }
 
-pub fn flat_idx_to_vector(idx: usize, grid_dim: USizeVec3) -> USizeVec3 {
-    USizeVec3::new(
-        idx % grid_dim.x,
-        (idx / grid_dim.x) % grid_dim.y,
-        idx / (grid_dim.x * grid_dim.y),
-    )
+#[macro_export]
+macro_rules! flat_idx_to_vector {
+    ($idx:expr, $grid_dim:expr, $vec_type:ty) => {{
+        <$vec_type>::new(
+            $idx % $grid_dim.x,
+            ($idx / $grid_dim.x) % $grid_dim.y,
+            $idx / ($grid_dim.x * $grid_dim.y),
+        )
+    }};
 }
 
-pub fn vector_to_flat_idx(v: USizeVec3, grid_dim: USizeVec3) -> usize {
-    v.z * grid_dim.x * grid_dim.y +
-        v.y * grid_dim.x +
-        v.x
+#[macro_export]
+macro_rules! vector_to_flat_idx {
+    ($v:expr, $grid_dim:expr) => {{
+        $v.z * $grid_dim.x * $grid_dim.y +
+            $v.y * $grid_dim.x +
+            $v.x
+    }};
 }
+
+// pub fn flat_idx_to_vector!(idx: usize, grid_dim: USizeVec3) -> USizeVec3 {
+//     USizeVec3::new(
+//         idx % grid_dim.x,
+//         (idx / grid_dim.x) % grid_dim.y,
+//         idx / (grid_dim.x * grid_dim.y),
+//     )
+// }
+//
+// pub fn vector_to_flat_idx!(v: USizeVec3, grid_dim: USizeVec3) -> usize {
+//     v.z * grid_dim.x * grid_dim.y +
+//         v.y * grid_dim.x +
+//         v.x
+// }
 
 /// Computes `e^(i*theta)`, returning a complex number in polar coordinates.
 #[macro_export]

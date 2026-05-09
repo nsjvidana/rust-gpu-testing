@@ -19,7 +19,7 @@ pub fn fdtd2(
     let cmp_i = id.cmpge(n_cells);
     if cmp_i.any() || id3.z > 0 { return; }
 
-    let i = vector_to_flat_idx(id3, n_cells3);
+    let i = vector_to_flat_idx!(id3, n_cells3);
     let i_splat = USizeVec2::splat(i);
     let mat = materials[cells[i].material_i as usize];
     let d = grid.cell_size;
