@@ -344,7 +344,7 @@ impl GaussianPulse2 {
         max_frequency: f32,
         amplitude: f32,
     ) -> Self {
-        let tau = 0.5 / max_frequency;
+        let tau = core::f32::consts::PI / max_frequency;
 
         Self {
             amplitude,
