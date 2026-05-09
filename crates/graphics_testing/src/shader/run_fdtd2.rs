@@ -20,18 +20,16 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
     let pulse_freq = 1e6;
     let pulse_amplitude = 1.;
 
-    data.min_wavelength(pulse_freq, 10)
-        .cfl_condition(2.);
+    data.min_wavelength(pulse_freq, 20)
+        .cfl_condition(1.);
     data.grid.n_cells = UVec2::new(20, 10);
     data.grid.cells.resize(data.grid.n_cells.element_product() as usize, GridCell2::default());
     data.source = GaussianPulse2::from_max_frequency(pulse_freq, pulse_amplitude);
 
-    // TODO: remove this test value
-    // data.grid.cells[30].en_z = pulse_amplitude;
-
     println!("dt: {:?}", data.dt);
     println!("cell_size: {:?}", data.grid.cell_size);
     let mut runner = data.create_gpu(1, backend)?;
+    runner.steps_per_submission = 30;
 
     // Set up window
     let mut window = Window::new("FDTD 2D").await;
@@ -55,10 +53,19 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
             runner.cells.read(backend, &mut data.grid.cells).await?;
             runner.submit_step(&gpu_kernels, backend)?;
 
-            for c in data.grid.cells.iter() {
-                if c.en_z.is_nan() {
-                    panic!("NaN number found!");
+            let mut found_invalid_val = false;
+            for (i, c) in data.grid.cells.iter().enumerate() {
+                if c.en_z.is_infinite() {
+                    found_invalid_val = true;
+                    println!("inf number found: {i}");
                 }
+                if c.en_z.is_nan() {
+                    found_invalid_val = true;
+                    println!("NaN number found: {i}");
+                }
+            }
+            if found_invalid_val {
+                println!("-----------");
             }
         }
         
@@ -158,8 +165,9 @@ impl FdtdData2 {
             .powf(2.)
             .element_sum()
             .sqrt();
+        let safety_margin = safety_margin.max(1.);
         self.dt = self.dt.min(
-            1. / (ElectricMaterial2::C_0 * denom_term_2 * safety_margin)
+            core::f32::consts::FRAC_1_PI / (ElectricMaterial2::C_0 * denom_term_2 * safety_margin)
         );
         self
     }
@@ -309,7 +317,7 @@ impl ElectricMaterial2 {
         MaterialConstants2 {
             h_update_coeff: Vec2::new(
                 -c_0_dt / self.mu_r.x,
-                c_0_dt / self.mu_r.y,
+                -c_0_dt / self.mu_r.y,
             ),
             en_z_update_coeff: 1. / self.eps_r_z,
             ..Default::default()

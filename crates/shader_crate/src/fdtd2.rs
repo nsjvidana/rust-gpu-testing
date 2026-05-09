@@ -20,16 +20,17 @@ pub fn fdtd2(
     if cmp_i.any() || id3.z > 0 { return; }
 
     let i = vector_to_flat_idx(id3, n_cells3);
+    let i_splat = USizeVec2::splat(i);
     let mat = materials[cells[i].material_i as usize];
     let d = grid.cell_size;
     let i_incr = grid.i_incr.as_usizevec2();
 
     // Update H from En
     let not_h_boundary = id.cmplt(n_cells - 1);
-    let en_1_indices = (i + i_incr).min(n_cells - 1);
+    let en_1_cell_idxs = (i + i_incr).min(n_cells - 1);
     let en_z = cells[i].en_z;
-    let en_x1_z = if not_h_boundary.x { cells[en_1_indices.x].en_z } else { 0. };
-    let en_y1_z = if not_h_boundary.y { cells[en_1_indices.y].en_z } else { 0. };
+    let en_x1_z = if not_h_boundary.x { cells[en_1_cell_idxs.x].en_z } else { 0. };
+    let en_y1_z = if not_h_boundary.y { cells[en_1_cell_idxs.y].en_z } else { 0. };
     let en_curl_xy = Vec2::new(
         (en_y1_z - en_z) / d.y,
         -(en_x1_z - en_z) / d.x,
@@ -38,11 +39,11 @@ pub fn fdtd2(
 
     // Update Dn/En from H
     let not_dn_boundary = id.cmpgt(USizeVec2::ZERO);
-    let h_1_indices = if i > 0 { USizeVec2::splat(i).wrapping_sub(i_incr) } else { USizeVec2::ZERO };
+    let h_1_cell_idxs = if i >= i_incr.max_element() { i_splat.wrapping_sub(i_incr) } else { i_splat };
     let h = cells[i].h;
-    let h_x1_y = if not_dn_boundary.x { cells[h_1_indices.x].h.y } else { 0. };
-    let h_y1_x = if not_dn_boundary.y { cells[h_1_indices.y].h.x } else { 0. };
-    let h_curl_z = (h.y - h_x1_y) / d.x - (h.x - h_y1_x) / d.y;
+    let h_x1_y = if not_dn_boundary.x { cells[h_1_cell_idxs.x].h.y } else { 0. };
+    let h_y1_x = if not_dn_boundary.y { cells[h_1_cell_idxs.y].h.x } else { 0. };
+    let h_curl_z = ((h.y - h_x1_y) / d.x) - ((h.x - h_y1_x) / d.y );
     cells[i].dn_z += grid.dn_z_update_coeff * h_curl_z;
     cells[i].en_z = mat.en_z_update_coeff * cells[i].dn_z;
 }
