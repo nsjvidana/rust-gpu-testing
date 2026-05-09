@@ -47,6 +47,22 @@ pub fn fdtd2(
     cells[i].en_z = mat.en_z_update_coeff * cells[i].dn_z;
 }
 
+#[spirv_bindgen]
+#[spirv(compute(threads(1)))]
+pub fn soft_source2(
+    #[spirv(global_invocation_id)] id: UVec3,
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 0)] cells: &mut [GridCell2],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] source: &GpuSource2,
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] source_vals: &[f32],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 3)] step_counter: &mut u32,
+    #[spirv(uniform, descriptor_set = 0, binding = 4)] grid: &GridInfo2,
+) {
+    if id.x > 0 { return; }
+
+    cells[source.cell_idx as usize].en_z += source_vals[*step_counter as usize];
+    *step_counter = (*step_counter + 1).min(source_vals.len() as u32 - 1);
+}
+
 #[derive(Copy, Clone, Pod, Zeroable, Default)]
 #[repr(C)]
 pub struct GridInfo2 {
@@ -80,4 +96,10 @@ pub struct MaterialConstants2 {
     pub h_update_coeff: Vec2,
     pub en_z_update_coeff: f32,
     pub _padding: [u32; 1]
+}
+
+#[derive(Copy, Clone, Pod, Zeroable, Default)]
+#[repr(C)]
+pub struct GpuSource2 {
+    pub cell_idx: u32 // TODO: change to tf/sf later on
 }

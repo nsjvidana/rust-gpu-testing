@@ -4,16 +4,17 @@ use glam::{USizeVec3, UVec2, Vec2};
 use khal::backend::{Backend, DispatchGrid, Encoder, GpuBackend, GpuBuffer};
 use khal::Shader;
 use kiss3d::prelude::*;
-use shader_crate::fdtd2::{Fdtd2, GridCell2, GridInfo2, MaterialConstants2};
+use shader_crate::fdtd2::{Fdtd2, GpuSource2, GridCell2, GridInfo2, MaterialConstants2, SoftSource2};
 use shader_crate::{flat_idx_to_vector, vector_to_flat_idx};
 
 #[derive(Shader)]
-struct GpuKernels {
-    fdtd2: Fdtd2
+struct GpuKernels2 {
+    fdtd2: Fdtd2,
+    soft_source2: SoftSource2,
 }
 
 pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
-    let gpu_kernels = GpuKernels::from_backend(backend)?;
+    let gpu_kernels = GpuKernels2::from_backend(backend)?;
     let mut data = FdtdData2::new();
 
     let pulse_freq = 1e6;
@@ -23,9 +24,10 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
         .cfl_condition();
     data.grid.n_cells = UVec2::new(20, 10);
     data.grid.cells.resize(data.grid.n_cells.element_product() as usize, GridCell2::default());
+    data.source = GaussianPulse2::from_max_frequency(pulse_freq, pulse_amplitude);
 
     // TODO: remove this test value
-    data.grid.cells[30].en_z = pulse_amplitude;
+    // data.grid.cells[30].en_z = pulse_amplitude;
 
     let mut runner = data.create_gpu(1, backend)?;
 
@@ -49,12 +51,17 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
         if window.get_key(Key::T) == Action::Press {
             backend.synchronize()?;
             runner.cells.read(backend, &mut data.grid.cells).await?;
-            runner.submit_step(&gpu_kernels.fdtd2, backend)?;
+            runner.submit_step(&gpu_kernels, backend)?;
+        }
+
+        for c in data.grid.cells.iter() {
+            if c.en_z.is_nan() {
+                println!("WE HAVE A PROBLEM");
+            }
         }
         
         render_data.render_simulation(&mut window, &data);
     }
-    runner.submit_step(&gpu_kernels.fdtd2, backend)?;
 
     Ok(())
 }
@@ -118,6 +125,7 @@ pub struct FdtdData2 {
     pub dt: f32,
     pub grid: FdtdGrid2,
     pub materials: Vec<ElectricMaterial2>,
+    pub source: GaussianPulse2,
 }
 
 impl FdtdData2 {
@@ -126,6 +134,7 @@ impl FdtdData2 {
             dt: f32::MAX,
             grid: FdtdGrid2::new(),
             materials: vec![],
+            source: GaussianPulse2::default()
         }
     }
 
@@ -165,9 +174,11 @@ impl FdtdData2 {
         let n_cells3 = USizeVec3::from((self.grid.n_cells.as_usizevec2(), 1));
         self.prepare_materials();
 
+        let step_counter = 0;
+
         let gpu_fdtd = GpuFdtd2 {
             cells: self.grid.cells.create_gpu_buffer_readable(backend)?,
-            grid: GridInfo2 {
+            grid_info: GridInfo2 {
                 n_cells: self.grid.n_cells,
                 cell_size: self.grid.cell_size,
                 i_incr: UVec2::new(
@@ -181,6 +192,13 @@ impl FdtdData2 {
                 .map(|m| m.to_gpu(self.dt))
                 .collect::<Vec<_>>()
                 .create_gpu_buffer(backend)?,
+            source: GpuSource2 {
+                cell_idx: 1
+            }.create_gpu_buffer(backend)?,
+            source_vals: self.source.compute_source_values(self.dt)
+                .create_gpu_buffer(backend)?,
+            step_counter: step_counter.create_gpu_buffer(backend)?,
+
             dispatch_grid: n_cells3.map(|v| v.div_ceil(8)).as_uvec3().to_array(),
             steps_per_submission,
         };
@@ -190,25 +208,38 @@ impl FdtdData2 {
 }
 
 pub struct GpuFdtd2 {
-    pub grid: GpuBuffer<GridInfo2>,
+    pub grid_info: GpuBuffer<GridInfo2>,
     pub cells: GpuBufferReadable<GridCell2>,
     pub materials: GpuBuffer<MaterialConstants2>,
+    pub source: GpuBuffer<GpuSource2>,
+    pub source_vals: GpuBuffer<f32>,
+    pub step_counter: GpuBuffer<u32>,
+
     pub dispatch_grid: [u32; 3],
     pub steps_per_submission: usize,
 }
 
 impl GpuFdtd2 {
-    pub fn submit_step(&mut self, gpu_kernel: &Fdtd2, backend: &GpuBackend) -> GpuResult<()> {
+    pub fn submit_step(&mut self, gpu_kernels: &GpuKernels2, backend: &GpuBackend) -> GpuResult<()> {
         let mut encoder = backend.begin_encoding();
 
         let mut pass = encoder.begin_pass("fdtd2", None);
         for _ in 0..self.steps_per_submission {
-            gpu_kernel.call(
+            gpu_kernels.fdtd2.call(
                 &mut pass,
                 DispatchGrid::Grid(self.dispatch_grid),
                 &mut self.cells.buffer,
                 &self.materials,
-                &self.grid
+                &self.grid_info
+            )?;
+            gpu_kernels.soft_source2.call(
+                &mut pass,
+                DispatchGrid::Grid([1, 1, 1]),
+                &mut self.cells.buffer,
+                &self.source,
+                &self.source_vals,
+                &mut self.step_counter,
+                &self.grid_info
             )?;
         }
         drop(pass);
@@ -280,6 +311,56 @@ impl ElectricMaterial2 {
             ),
             en_z_update_coeff: 1. / self.eps_r_z,
             ..Default::default()
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct GaussianPulse2 {
+    pub amplitude: f32,
+    pub tau: f32,
+    pub t_0: f32,
+}
+
+impl GaussianPulse2 {
+    /// Create a Gaussian Pulse that has a maximum frequency of `max_frequency`
+    pub fn from_max_frequency(
+        max_frequency: f32,
+        amplitude: f32,
+    ) -> Self {
+        let tau = 0.5 / max_frequency;
+
+        Self {
+            amplitude,
+            tau,
+            t_0: 6. * tau,
+        }
+    }
+
+    pub fn compute_source_values(&self, dt: f32) -> Vec<f32> {
+        let approx_pulse_duration = 12. * self.tau;
+        let num_vals = (approx_pulse_duration / dt).ceil() as u32;
+        let mut vals = vec![0.; num_vals as usize];
+
+        let mut t = 0.;
+        for i in 0..vals.len() {
+            t += dt;
+            let g = core::f32::consts::E.powf(
+                -((t - self.t_0) / self.tau).powi(2)
+            );
+            vals[i] = g * self.amplitude;
+        }
+
+        vals
+    }
+}
+
+impl Default for GaussianPulse2 {
+    fn default() -> Self {
+        Self {
+            amplitude: 0.,
+            tau: 1e-6,
+            t_0: 0.,
         }
     }
 }
