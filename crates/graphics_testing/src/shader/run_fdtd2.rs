@@ -29,6 +29,8 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
     // TODO: remove this test value
     // data.grid.cells[30].en_z = pulse_amplitude;
 
+    println!("dt: {:?}", data.dt);
+    println!("cell_size: {:?}", data.grid.cell_size);
     let mut runner = data.create_gpu(1, backend)?;
 
     // Set up window
@@ -52,11 +54,11 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
             backend.synchronize()?;
             runner.cells.read(backend, &mut data.grid.cells).await?;
             runner.submit_step(&gpu_kernels, backend)?;
-        }
 
-        for c in data.grid.cells.iter() {
-            if c.en_z.is_nan() {
-                println!("WE HAVE A PROBLEM");
+            for c in data.grid.cells.iter() {
+                if c.en_z.is_nan() {
+                    panic!("NaN number found!");
+                }
             }
         }
         
@@ -287,8 +289,8 @@ impl ElectricMaterial2 {
     pub const MU_0: f32 = 1.25663706127e-6;
     pub const IMPEDANCE_0: f32 = 376.730313412;
     pub const FREE_SPACE: Self = Self {
-        eps_r_z: Self::EPS_0,
-        mu_r: Vec2::splat(Self::MU_0),
+        eps_r_z: 1.,
+        mu_r: Vec2::ONE,
         n: 1.,
         impedance: Self::IMPEDANCE_0,
     };
