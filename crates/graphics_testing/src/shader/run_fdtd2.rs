@@ -21,7 +21,7 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
     let pulse_amplitude = 1.;
 
     data.min_wavelength(pulse_freq, 10)
-        .cfl_condition();
+        .cfl_condition(2.);
     data.grid.n_cells = UVec2::new(20, 10);
     data.grid.cells.resize(data.grid.n_cells.element_product() as usize, GridCell2::default());
     data.source = GaussianPulse2::from_max_frequency(pulse_freq, pulse_amplitude);
@@ -152,14 +152,14 @@ impl FdtdData2 {
     }
 
     /// Enforce the Courant–Friedrichs–Lewy stability condition
-    pub fn cfl_condition(&mut self) -> &mut Self {
+    pub fn cfl_condition(&mut self, safety_margin: f32) -> &mut Self {
         let denom_term_2 = self.grid.cell_size
             .recip()
             .powf(2.)
             .element_sum()
             .sqrt();
         self.dt = self.dt.min(
-            1. / (ElectricMaterial2::C_0 * denom_term_2)
+            1. / (ElectricMaterial2::C_0 * denom_term_2 * safety_margin)
         );
         self
     }
