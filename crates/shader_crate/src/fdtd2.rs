@@ -27,7 +27,7 @@ pub fn fdtd2(
 
     // Update H from En
     let not_h_boundary = id.cmplt(n_cells - 1);
-    let en_1_cell_idxs = (i + i_incr).min(n_cells - 1);
+    let en_1_cell_idxs = (i + i_incr).min(USizeVec2::splat(cells.len() - 1));
     let en_z = cells[i].en_z;
     let en_x1_z = if not_h_boundary.x { cells[en_1_cell_idxs.x].en_z } else { 0. };
     let en_y1_z = if not_h_boundary.y { cells[en_1_cell_idxs.y].en_z } else { 0. };
@@ -39,7 +39,8 @@ pub fn fdtd2(
 
     // Update Dn/En from H
     let not_dn_boundary = id.cmpgt(USizeVec2::ZERO);
-    let h_1_cell_idxs = if i >= i_incr.max_element() { i_splat.wrapping_sub(i_incr) } else { i_splat };
+    let h_1_cell_idxs = i_splat.wrapping_sub(i_incr)
+        .map(|v| if v > i { 0 } else { v });
     let h = cells[i].h;
     let h_x1_y = if not_dn_boundary.x { cells[h_1_cell_idxs.x].h.y } else { 0. };
     let h_y1_x = if not_dn_boundary.y { cells[h_1_cell_idxs.y].h.x } else { 0. };
