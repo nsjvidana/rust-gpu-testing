@@ -56,12 +56,12 @@ pub fn soft_source2(
     #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] source: &GpuSource2,
     #[spirv(storage_buffer, descriptor_set = 0, binding = 2)] source_vals: &[f32],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 3)] step_counter: &mut u32,
-    #[spirv(uniform, descriptor_set = 0, binding = 4)] grid: &GridInfo2,
 ) {
     if id.x > 0 { return; }
 
-    cells[source.cell_idx as usize].en_z += source_vals[*step_counter as usize];
-    *step_counter = (*step_counter + 1).min(source_vals.len() as u32 - 1);
+    let val_i = (*step_counter as usize).min(source_vals.len());
+    cells[source.cell_idx as usize].en_z = source_vals[val_i];
+    *step_counter += 1;
 }
 
 #[derive(Copy, Clone, Pod, Zeroable, Default)]

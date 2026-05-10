@@ -21,15 +21,14 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
     let pulse_amplitude = 1.;
 
     data.min_wavelength(pulse_freq, 20)
-        .cfl_condition(2.);
+        .cfl_condition(1.);
     data.grid.n_cells = UVec2::new(20, 10);
     data.grid.cells.resize(data.grid.n_cells.element_product() as usize, GridCell2::default());
     data.source = GaussianPulse2::from_max_frequency(pulse_freq, pulse_amplitude);
 
     println!("dt: {:?}", data.dt);
     println!("cell_size: {:?}", data.grid.cell_size);
-    let mut runner = data.create_gpu(1, backend)?;
-    runner.steps_per_submission = 1;
+    let mut runner = data.create_gpu(2, backend)?;
 
     // Set up window
     let mut window = Window::new("FDTD 2D").await;
@@ -254,8 +253,7 @@ impl GpuFdtd2 {
                 &mut self.cells.buffer,
                 &self.source,
                 &self.source_vals,
-                &mut self.step_counter,
-                &self.grid_info
+                &mut self.step_counter
             )?;
         }
         drop(pass);
