@@ -19,16 +19,17 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
 
     let pulse_freq = 1e6;
     let pulse_amplitude = 1.;
+    let pulse = GaussianPulse2::from_max_frequency(pulse_freq, pulse_amplitude);
 
     data.min_wavelength(pulse_freq, 20)
-        .cfl_condition(2.);
+        .cfl_condition(1.);
     data.grid.n_cells = UVec2::new(20, 10);
     data.grid.cells.resize(data.grid.n_cells.element_product() as usize, GridCell2::default());
-    data.source = GaussianPulse2::from_max_frequency(pulse_freq, pulse_amplitude);
+    data.set_source(pulse, 10);
 
     println!("dt: {:?}", data.dt);
     println!("cell_size: {:?}", data.grid.cell_size);
-    let mut runner = data.create_gpu(1, backend)?;
+    let mut runner = data.create_gpu(15, backend)?;
 
     // Set up window
     let mut window = Window::new("FDTD 2D").await;
@@ -176,6 +177,15 @@ impl FdtdData2 {
             self.materials.push(ElectricMaterial2::FREE_SPACE);
         }
         // TODO: include object materials
+        self
+    }
+
+    /// Set the `GaussianPulse2` source for this simulation.
+    ///
+    /// `resolution` should be at least `10` to `20` for better results
+    pub fn set_source(&mut self, pulse: GaussianPulse2, resolution: u32) -> &mut Self {
+        self.dt = self.dt.min(pulse.tau / resolution as f32);
+        self.source = pulse;
         self
     }
 
@@ -336,7 +346,7 @@ impl GaussianPulse2 {
         max_frequency: f32,
         amplitude: f32,
     ) -> Self {
-        let tau = 0.5 / max_frequency;
+        let tau = core::f32::consts::FRAC_1_PI / max_frequency;
 
         Self {
             amplitude,
