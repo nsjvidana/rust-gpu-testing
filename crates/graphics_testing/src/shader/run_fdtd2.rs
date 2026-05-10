@@ -29,7 +29,7 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
 
     println!("dt: {:?}", data.dt);
     println!("cell_size: {:?}", data.grid.cell_size);
-    let mut runner = data.create_gpu(15, backend)?;
+    let mut runner = data.create_gpu(1, backend)?;
 
     // Set up window
     let mut window = Window::new("FDTD 2D").await;
@@ -45,7 +45,7 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
     scene
         .add_light(Light::point(100.0))
         .set_position(Vec3::new(0.0, 2.0, -2.0));
-    let mut render_data = RenderData2::new(&data, pulse_amplitude * 0.01, 0.01);
+    let mut render_data = RenderData2::new(&data, pulse_amplitude * 0.5, 0.01);
     let mut max_en_magnitude = 0.;
     // Main render loop
     while window.render_3d(&mut scene, &mut camera).await {

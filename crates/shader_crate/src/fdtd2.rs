@@ -46,8 +46,9 @@ pub fn fdtd2(
     let h_x1_y = if not_dn_boundary.x { cells[h_1_cell_idxs.x].h.y } else { 0. };
     let h_y1_x = if not_dn_boundary.y { cells[h_1_cell_idxs.y].h.x } else { 0. };
     let h_curl_z = ((h.y - h_x1_y) / d.x) - ((h.x - h_y1_x) / d.y );
-    cells[i].dn_z += grid.dn_z_update_coeff * h_curl_z;
-    cells[i].en_z = mat.en_z_update_coeff * cells[i].dn_z;
+    let delta_dn = grid.dn_z_update_coeff * h_curl_z;
+    cells[i].dn_z += delta_dn;
+    cells[i].en_z += mat.en_z_update_coeff * delta_dn;
 }
 
 #[spirv_bindgen]
