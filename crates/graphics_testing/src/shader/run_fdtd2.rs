@@ -1,6 +1,6 @@
 use crate::prelude::GpuResult;
 use crate::util::{arrow_polyline, bb_polyline, CreateGpuBuffer, CreateGpuBufferReadable, GpuBufferReadable};
-use glam::{USizeVec3, UVec2, Vec2};
+use glam::{USizeVec3, UVec2, UVec3, Vec2};
 use khal::backend::{Backend, DispatchGrid, Encoder, GpuBackend, GpuBuffer};
 use khal::Shader;
 use kiss3d::prelude::*;
@@ -21,14 +21,14 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
     let pulse_amplitude = 1.;
 
     data.min_wavelength(pulse_freq, 20)
-        .cfl_condition(1.);
+        .cfl_condition(2.);
     data.grid.n_cells = UVec2::new(20, 10);
     data.grid.cells.resize(data.grid.n_cells.element_product() as usize, GridCell2::default());
     data.source = GaussianPulse2::from_max_frequency(pulse_freq, pulse_amplitude);
 
     println!("dt: {:?}", data.dt);
     println!("cell_size: {:?}", data.grid.cell_size);
-    let mut runner = data.create_gpu(2, backend)?;
+    let mut runner = data.create_gpu(1, backend)?;
 
     // Set up window
     let mut window = Window::new("FDTD 2D").await;
@@ -44,7 +44,8 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
     scene
         .add_light(Light::point(100.0))
         .set_position(Vec3::new(0.0, 2.0, -2.0));
-    let mut render_data = RenderData2::new(&data, pulse_amplitude, 0.01);
+    let mut render_data = RenderData2::new(&data, pulse_amplitude * 0.01, 0.01);
+    let mut max_en_magnitude = 0.;
     // Main render loop
     while window.render_3d(&mut scene, &mut camera).await {
         if window.get_key(Key::T) == Action::Press {
@@ -52,19 +53,12 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
             runner.cells.read(backend, &mut data.grid.cells).await?;
             runner.submit_step(&gpu_kernels, backend)?;
 
-            let mut found_invalid_val = false;
-            for (i, c) in data.grid.cells.iter().enumerate() {
-                if c.en_z.is_infinite() {
-                    found_invalid_val = true;
-                    println!("inf number found: {i}");
+            for c in data.grid.cells.iter() {
+                let en_mag = c.en_z.abs();
+                if en_mag > max_en_magnitude {
+                    println!("New max En magnitude: {}", en_mag);
+                    max_en_magnitude = en_mag;
                 }
-                if c.en_z.is_nan() {
-                    found_invalid_val = true;
-                    println!("NaN number found: {i}");
-                }
-            }
-            if found_invalid_val {
-                println!("-----------");
             }
         }
         
@@ -186,7 +180,7 @@ impl FdtdData2 {
     }
 
     pub fn create_gpu(&mut self, steps_per_submission: usize, backend: &GpuBackend) -> GpuResult<GpuFdtd2> {
-        let n_cells3 = USizeVec3::from((self.grid.n_cells.as_usizevec2(), 1));
+        let n_cells3 = UVec3::from((self.grid.n_cells, 1));
         self.prepare_materials();
 
         let step_counter = 0;
@@ -197,8 +191,8 @@ impl FdtdData2 {
                 n_cells: self.grid.n_cells,
                 cell_size: self.grid.cell_size,
                 i_incr: UVec2::new(
-                    vector_to_flat_idx!(USizeVec3::X, n_cells3) as u32,
-                    vector_to_flat_idx!(USizeVec3::Y, n_cells3) as u32
+                    vector_to_flat_idx!(UVec3::X, n_cells3),
+                    vector_to_flat_idx!(UVec3::Y, n_cells3),
                 ),
                 dn_z_update_coeff: ElectricMaterial2::C_0 * self.dt,
                 _padding: 0
@@ -214,7 +208,7 @@ impl FdtdData2 {
                 .create_gpu_buffer(backend)?,
             step_counter: step_counter.create_gpu_buffer(backend)?,
 
-            dispatch_grid: n_cells3.map(|v| v.div_ceil(8)).as_uvec3().to_array(),
+            dispatch_grid: n_cells3.map(|v| v.div_ceil(8)).to_array(),
             steps_per_submission,
         };
 
@@ -342,7 +336,7 @@ impl GaussianPulse2 {
         max_frequency: f32,
         amplitude: f32,
     ) -> Self {
-        let tau = core::f32::consts::PI / max_frequency;
+        let tau = 0.5 / max_frequency;
 
         Self {
             amplitude,

@@ -39,8 +39,9 @@ pub fn fdtd2(
 
     // Update Dn/En from H
     let not_dn_boundary = id.cmpgt(USizeVec2::ZERO);
-    let h_1_cell_idxs = i_splat.wrapping_sub(i_incr)
-        .map(|v| if v > i { 0 } else { v });
+    let h_1_cell_idxs = i_incr.map(|decr|
+        if decr > i { 0 } else { usize::wrapping_sub(i, decr) }
+    );
     let h = cells[i].h;
     let h_x1_y = if not_dn_boundary.x { cells[h_1_cell_idxs.x].h.y } else { 0. };
     let h_y1_x = if not_dn_boundary.y { cells[h_1_cell_idxs.y].h.x } else { 0. };
@@ -60,8 +61,9 @@ pub fn soft_source2(
 ) {
     if id.x > 0 { return; }
 
-    let val_i = (*step_counter as usize).min(source_vals.len());
-    cells[source.cell_idx as usize].en_z = source_vals[val_i];
+    let val_i = ((*step_counter) as usize).min(source_vals.len() - 1);
+    let enable_source = (val_i != source_vals.len() - 1) as u32 as f32;
+    cells[source.cell_idx as usize].en_z += source_vals[val_i] * enable_source;
     *step_counter += 1;
 }
 
