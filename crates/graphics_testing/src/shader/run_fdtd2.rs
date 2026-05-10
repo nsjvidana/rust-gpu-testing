@@ -22,8 +22,8 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
     let pulse = GaussianPulse2::from_max_frequency(pulse_freq, pulse_amplitude);
 
     data.min_wavelength(pulse_freq, 20)
-        .cfl_condition(1.);
-    data.grid.n_cells = UVec2::new(20, 10);
+        .cfl_condition(3.);
+    data.grid.n_cells = UVec2::new(30, 30);
     data.grid.cells.resize(data.grid.n_cells.element_product() as usize, GridCell2::default());
     data.set_source(pulse, 10);
 
@@ -45,7 +45,7 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
     scene
         .add_light(Light::point(100.0))
         .set_position(Vec3::new(0.0, 2.0, -2.0));
-    let mut render_data = RenderData2::new(&data, pulse_amplitude * 0.5, 0.01);
+    let mut render_data = RenderData2::new(&data, pulse_amplitude * 0.2, 0.01);
     let mut max_en_magnitude = 0.;
     // Main render loop
     while window.render_3d(&mut scene, &mut camera).await {
@@ -212,7 +212,7 @@ impl FdtdData2 {
                 .collect::<Vec<_>>()
                 .create_gpu_buffer(backend)?,
             source: GpuSource2 {
-                cell_idx: 1
+                cell_idx: vector_to_flat_idx!(n_cells3 / 2, n_cells3),
             }.create_gpu_buffer(backend)?,
             source_vals: self.source.compute_source_values(self.dt)
                 .create_gpu_buffer(backend)?,
