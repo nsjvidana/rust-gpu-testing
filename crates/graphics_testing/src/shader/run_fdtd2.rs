@@ -45,7 +45,7 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
     scene
         .add_light(Light::point(100.0))
         .set_position(Vec3::new(0.0, 2.0, -2.0));
-    let mut render_data = RenderData2::new(&data, pulse_amplitude * 0.2, 0.01);
+    let mut render_data = RenderData2::new(&data, 0.01);
     let mut max_en_magnitude = 0.;
     // Main render loop
     while window.render_3d(&mut scene, &mut camera).await {
@@ -63,26 +63,23 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
             }
         }
         
-        render_data.render_simulation(&mut window, &data);
+        render_data.render_simulation(&mut window, &data, max_en_magnitude);
     }
 
     Ok(())
 }
 
 pub struct RenderData2 {
-    pub en_arrows: Vec<(Vec3, Polyline3d)>,
+    pub cell_positions: Vec<Vec3>,
     pub en_color: Color,
     pub grid_bb: Polyline3d,
-    pub max_en_val: f32,
     pub alpha_threshold: f32,
 }
 
 impl RenderData2 {
-    pub fn new(data: &FdtdData2, max_src_val: f32, alpha_threshold: f32) -> Self {
+    pub fn new(data: &FdtdData2, alpha_threshold: f32) -> Self {
         let grid = &data.grid;
         let en_color = RED;
-        let en_arrow = arrow_polyline(Vec3::ZERO, Vec3::Z * grid.cell_size.length())
-            .with_color(en_color);
         let n_cells3 = USizeVec3::from((grid.n_cells.as_usizevec2(), 1));
         let cell_size3 = Vec3::from((grid.cell_size, 0.));
 
@@ -92,37 +89,35 @@ impl RenderData2 {
         );
 
         Self {
-            en_arrows: (0..grid.cells.len())
+            cell_positions: (0..grid.cells.len())
                 .map(|i| {
                     let i3 = flat_idx_to_vector!(i, n_cells3, USizeVec3);
-                    let c_pos = i3.as_vec3() * cell_size3;
-                    let polyline = en_arrow.clone()
-                        .with_transform(Pose3::from_translation(c_pos))
-                        .with_color(en_color);
-                    (c_pos, polyline)
+                    i3.as_vec3() * cell_size3
                 })
                 .collect(),
-            max_en_val: max_src_val,
             grid_bb,
             en_color,
             alpha_threshold
         }
     }
 
-    pub fn render_simulation(&mut self, window: &mut Window, data: &FdtdData2) {
-        for (c, (_, arrow)) in data.grid.cells.iter()
-            .zip(self.en_arrows.iter_mut())
+    pub fn render_simulation(
+        &mut self,
+        window: &mut Window,
+        data: &FdtdData2,
+        max_en_value: f32,
+    ) {
+        let half_cell_size3 = Vec3::from((data.grid.cell_size/2., 0.));
+        let cell_diagonal_len = data.grid.cell_size.length();
+        for (c, pos) in data.grid.cells.iter()
+            .zip(self.cell_positions.iter())
         {
-            let alpha = c.en_z.abs() / self.max_en_val;
-            arrow.color = self.en_color.with_alpha(alpha);
-
-            let pos = arrow.transform.translation;
-            let angle = if c.en_z.is_sign_negative() { core::f32::consts::PI }
-                else { 0. };
-            arrow.transform = Pose3::new(pos, Vec3::Y * angle);
-
+            // Drawing En field
+            let alpha = c.en_z.abs() / max_en_value;
             if alpha > self.alpha_threshold {
-                window.draw_polyline(arrow);
+                let color = self.en_color.with_alpha(alpha);
+                let line_len = alpha * cell_diagonal_len * c.en_z.signum();
+                window.draw_line(*pos, pos + Vec3::new(0., 0., line_len), color, 2., false);
             }
         }
 
