@@ -54,12 +54,13 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
             runner.cells.read(backend, &mut data.grid.cells).await?;
             runner.submit_step(&gpu_kernels, backend)?;
 
-            for c in data.grid.cells.iter() {
-                let en_mag = c.en_z.abs();
-                if en_mag > max_en_magnitude {
-                    println!("New max En magnitude: {}", en_mag);
-                    max_en_magnitude = en_mag;
-                }
+            let curr_max_en_mag = data.grid.cells.iter()
+                .map(|c| c.en_z)
+                .max_by(|a, b| a.total_cmp(b))
+                .unwrap();
+            if curr_max_en_mag > max_en_magnitude {
+                println!("New max En magnitude: {}", curr_max_en_mag);
+                max_en_magnitude = curr_max_en_mag;
             }
         }
         
