@@ -168,6 +168,20 @@ impl FdtdData2 {
         self
     }
 
+    /// Computes the absolute maximum frequency the simulation can resolve
+    /// according to the Nyquist-Shannon Sampling Theorem
+    pub fn compute_max_frequency(&mut self) -> f32 {
+        0.5 / self.dt
+    }
+
+    /// Minimum number of steps needed to resolve frequency down to a resolution of `df`.
+    /// The smaller `df` is, the less "blurred" the simulated frequency response is.
+    ///
+    /// Useful for getting proper Fourier Transform results
+    pub fn steps_for_df(&self, df: f32) -> u32 {
+        (1. / (self.dt * df)).round() as u32
+    }
+
     pub fn prepare_materials(&mut self) -> &mut Self {
         if self.materials.is_empty() {
             self.materials.push(ElectricMaterial2::FREE_SPACE);
