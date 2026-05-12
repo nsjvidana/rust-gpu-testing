@@ -1,8 +1,9 @@
 use crate::prelude::GpuResult;
-use crate::util::{arrow_polyline, bb_polyline, CreateGpuBuffer, CreateGpuBufferReadable, GpuBufferReadable};
+use crate::util::{bb_polyline, CreateGpuBuffer, CreateGpuBufferReadable, GpuBufferReadable};
 use glam::{USizeVec3, UVec2, UVec3, Vec2};
 use khal::backend::{Backend, DispatchGrid, Encoder, GpuBackend, GpuBuffer};
 use khal::Shader;
+use kiss3d::egui;
 use kiss3d::prelude::*;
 use shader_crate::fdtd2::{Fdtd2, GpuSource2, GridCell2, GridInfo2, MaterialConstants2, SoftSource2};
 use shader_crate::{flat_idx_to_vector, vector_to_flat_idx};
@@ -65,6 +66,7 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
         }
         
         render_data.render_simulation(&mut window, &data, max_en_magnitude);
+        render_data.egui_window(&mut window);
     }
 
     Ok(())
@@ -108,7 +110,6 @@ impl RenderData2 {
         data: &FdtdData2,
         max_en_value: f32,
     ) {
-        let half_cell_size3 = Vec3::from((data.grid.cell_size/2., 0.));
         let cell_diagonal_len = data.grid.cell_size.length();
         for (c, pos) in data.grid.cells.iter()
             .zip(self.cell_positions.iter())
@@ -123,6 +124,17 @@ impl RenderData2 {
         }
 
         window.draw_polyline(&self.grid_bb);
+    }
+
+    pub fn egui_window(&mut self, window: &mut Window) {
+        window.draw_ui(|ctx| {
+            egui::Window::new("Import mesh")
+                .show(ctx, |ui| self.ui(ui));
+        });
+    }
+
+    pub fn ui(&mut self, ui: &mut egui::Ui) {
+        ui.label("Hi");
     }
 }
 
