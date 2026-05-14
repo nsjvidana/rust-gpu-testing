@@ -1,3 +1,6 @@
+use rapier3d::geometry::MeshConverterError;
+use rapier3d_meshloader::MeshLoaderError;
+
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("The shader is uninitialized. Maybe you tried reading its output while it was uninitialized.")]
@@ -22,4 +25,12 @@ pub enum Error {
     },
     #[error("Attempted downloading a buffer that wasn't configured for downloading")]
     BufferCannotBeDownloaded
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum ObjectError {
+    #[error("{0}")]
+    MeshConversionError(MeshConverterError),
+    #[error("{0}")]
+    MeshLoaderError(MeshLoaderError),
 }

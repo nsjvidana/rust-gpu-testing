@@ -16,6 +16,7 @@ unexpected_cfgs = { level = "allow", check-cfg = ['cfg(target_arch, values("spir
 kiss3d = { git = "https://github.com/dimforge/kiss3d.git", rev = "0983a85a4021769c6723eb7933194c08e2e02824", features = ["egui"] }
 egui_plot = { version = "0.35.0" }
 rapier3d-meshloader = { version = "0.13.0", features = ["stl", "collada", "wavefront"] }
+rapier3d = "*"
 glam = { version = "*", features = ["bytemuck"] }
 pollster = "0.4.0"
 bytemuck = { version = "*", features = ["derive"]}

@@ -1281,6 +1281,7 @@ dependencies = [
  "kiss3d",
  "pollster",
  "rand 0.10.0",
+ "rapier3d",
  "rapier3d-meshloader",
  "rayon",
  "shader_crate",
