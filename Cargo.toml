@@ -22,6 +22,7 @@ pollster = "0.4.0"
 bytemuck = { version = "*", features = ["derive"]}
 rand = "0.10.0"
 include_dir = "*"
+rfd = "0.17.2"
 thiserror = "2.0.18"
 # khal
 khal = { git = "https://github.com/dimforge/khal.git", rev = "1dd6b842e9dc5a24ec25f1625ec1c1ef07f4cc1c", features = ["derive", "cpu"] }

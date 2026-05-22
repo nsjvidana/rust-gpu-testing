@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use crate::prelude::GpuResult;
 use crate::util::{bb_polyline, CreateGpuBuffer, CreateGpuBufferReadable, GpuBufferReadable};
 use glam::{USizeVec3, UVec2, UVec3, Vec2};
@@ -142,19 +143,24 @@ impl RenderData2 {
 
 #[derive(Default)]
 pub struct ImportUi2 {
-    pub file_path: String,
-    pub material: ElectricMaterial2
+    pub file_path: PathBuf,
+    pub file_path_string: String,
+    pub material: ElectricMaterial2,
     // TODO: register if the "import" button is clicked
 }
 
 impl ImportUi2 {
     pub fn ui(&mut self, ui: &mut egui::Ui) {
-        let mut browse = false;
         ui.horizontal(|ui| {
-            ui.text_edit_singleline(&mut self.file_path);
-            browse = ui.button("Browse").clicked();
-            if browse {
-                todo!("Browse mesh files");
+            ui.text_edit_singleline(&mut self.file_path_string);
+            if ui.button("Browse").clicked() {
+                if let Some(file) = rfd::FileDialog::new()
+                    .add_filter("mesh", &["stl", "dae", "obj"])
+                    .pick_file()
+                {
+                    self.file_path = file;
+                    self.file_path_string = self.file_path.as_path().to_string_lossy().to_string();
+                }
             }
         });
 
