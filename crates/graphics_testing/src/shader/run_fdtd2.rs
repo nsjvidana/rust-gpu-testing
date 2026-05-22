@@ -54,6 +54,7 @@ pub struct RenderData2 {
     pub scene: SceneNode3d,
     pub camera: OrbitCamera3d,
     pub import_ui: ImportUi2,
+    pub obj_explorer_ui: ObjectExplorerUi,
 
     pub cell_positions: Vec<Vec3>,
     pub en_color: Color,
@@ -92,6 +93,7 @@ impl RenderData2 {
             scene,
             camera,
             import_ui: Default::default(),
+            obj_explorer_ui: Default::default(),
 
             cell_positions: (0..grid.cells.len())
                 .map(|i| {
@@ -130,7 +132,7 @@ impl RenderData2 {
             self.render_simulation(window, &data);
 
             window.draw_ui(|ctx| {
-                self.import_window(ctx);
+                self.egui_windows(data, ctx);
             });
         }
         Ok(())
@@ -157,9 +159,11 @@ impl RenderData2 {
         window.draw_polyline(&self.grid_bb);
     }
 
-    pub fn import_window(&mut self, ctx: &egui::Context) {
+    pub fn egui_windows(&mut self, data: &mut FdtdData2, ctx: &egui::Context) {
         egui::Window::new("Import Mesh")
             .show(ctx, |ui| self.import_ui.ui(ui));
+        egui::Window::new("Object Explorer")
+            .show(ctx, |ui| self.obj_explorer_ui.explorer_ui(data, ui));
     }
 }
 
@@ -206,6 +210,42 @@ impl ImportUi2 {
         });
 
         self.import_clicked = ui.button("Import Mesh").clicked();
+    }
+}
+
+#[derive(Default)]
+pub struct ObjectExplorerUi;
+
+impl ObjectExplorerUi {
+    pub fn explorer_ui(&mut self, data: &mut FdtdData2, ui: &mut egui::Ui) {
+        let ImportedObjects {
+            scene_nodes,
+            shapes,
+            ..
+        } = &mut data.imported_objects;
+        let speed = data.grid.cell_size;
+
+        for (i, node, shape) in scene_nodes.iter_mut()
+            .zip(shapes.iter())
+            .enumerate()
+            .map(|(i, (n, s))| (i, n, s))
+        {
+            let mut pos = node.position();
+
+            let mut changed = false;
+            ui.collapsing(&shape.raw_mesh.name, |ui| {
+                ui.label("Translation:");
+                ui.indent(i, |ui| {
+                    changed |= ui.add(egui::DragValue::new(&mut pos.x).speed(speed.x)).changed();
+                    changed |= ui.add(egui::DragValue::new(&mut pos.y).speed(speed.y)).changed();
+                    changed |= ui.add(egui::DragValue::new(&mut pos.z).speed(speed.x)).changed();
+                })
+            });
+            if changed {
+                println!("{}", pos);
+                node.set_position(pos);
+            }
+        }
     }
 }
 
