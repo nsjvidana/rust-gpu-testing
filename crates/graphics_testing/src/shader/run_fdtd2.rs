@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use crate::prelude::GpuResult;
 use crate::util::{bb_polyline, CreateGpuBuffer, CreateGpuBufferReadable, GpuBufferReadable};
 use glam::{USizeVec3, UVec2, UVec3, Vec2};
@@ -9,6 +9,8 @@ use kiss3d::egui::Widget;
 use kiss3d::prelude::*;
 use shader_crate::fdtd2::{Fdtd2, GpuSource2, GridCell2, GridInfo2, MaterialConstants2, SoftSource2};
 use shader_crate::{flat_idx_to_vector, vector_to_flat_idx};
+use crate::error::ObjectError;
+use crate::shader::ImportedObjects;
 
 #[derive(Shader)]
 struct GpuKernels2 {
@@ -66,7 +68,11 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
                 max_en_magnitude = curr_max_en_mag;
             }
         }
-        
+
+        if render_data.import_ui.import_clicked {
+            data.import_mesh(&render_data.import_ui.file_path, render_data.import_ui.material)
+                .unwrap();
+        }
         render_data.render_simulation(&mut window, &data, max_en_magnitude);
 
         window.draw_ui(|ctx| {
@@ -146,16 +152,18 @@ pub struct ImportUi2 {
     pub file_path: PathBuf,
     pub file_path_string: String,
     pub material: ElectricMaterial2,
-    // TODO: register if the "import" button is clicked
+    pub import_clicked: bool,
 }
 
 impl ImportUi2 {
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            ui.text_edit_singleline(&mut self.file_path_string);
+            if ui.text_edit_singleline(&mut self.file_path_string).changed() {
+                self.file_path = PathBuf::from(self.file_path_string.as_str());
+            }
             if ui.button("Browse").clicked() {
                 if let Some(file) = rfd::FileDialog::new()
-                    .add_filter("mesh", &["stl", "dae", "obj"])
+                    .add_filter("3D Mesh", &["stl", "dae", "obj"])
                     .pick_file()
                 {
                     self.file_path = file;
@@ -180,6 +188,8 @@ impl ImportUi2 {
                 self.material = ElectricMaterial2::FREE_SPACE;
             }
         });
+
+        self.import_clicked = ui.button("Import Mesh").clicked();
     }
 }
 
@@ -188,6 +198,7 @@ pub struct FdtdData2 {
     pub grid: FdtdGrid2,
     pub materials: Vec<ElectricMaterial2>,
     pub source: GaussianPulse2,
+    pub imported_objects: ImportedObjects<ElectricMaterial2>,
 }
 
 impl FdtdData2 {
@@ -196,7 +207,8 @@ impl FdtdData2 {
             dt: f32::MAX,
             grid: FdtdGrid2::new(),
             materials: vec![],
-            source: GaussianPulse2::default()
+            source: GaussianPulse2::default(),
+            imported_objects: ImportedObjects::new(),
         }
     }
 
@@ -254,6 +266,12 @@ impl FdtdData2 {
         self.dt = self.dt.min(pulse.tau / resolution as f32);
         self.source = pulse;
         self
+    }
+
+    /// Imports a mesh from a `path` as an object with a specific `material`.
+    pub fn import_mesh(&mut self, path: impl AsRef<Path>, material: ElectricMaterial2) -> Result<(), Vec<ObjectError>> {
+        self.imported_objects.materials.push(material);
+        self.imported_objects.extend_from_path(path)
     }
 
     pub fn create_gpu(&mut self, steps_per_submission: usize, backend: &GpuBackend) -> GpuResult<GpuFdtd2> {
