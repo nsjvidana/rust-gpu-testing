@@ -192,22 +192,7 @@ impl ImportUi2 {
             }
         });
 
-        ui.collapsing("Material Properties", |ui| {
-            ui.label("Relative Permeability (Tensor Diagonal):");
-            ui.indent("mu_r_indent", |ui| ui.horizontal(|ui| {
-                egui::DragValue::new(&mut self.material.mu_r.x).speed(0.01).range(0.0..=f32::MAX).ui(ui);
-                egui::DragValue::new(&mut self.material.mu_r.y).speed(0.01).range(0.0..=f32::MAX).ui(ui);
-            }));
-
-            ui.label("Relative Permittivity:");
-            ui.indent("eps_r_indent", |ui|
-                egui::DragValue::new(&mut self.material.eps_r_z).speed(0.01).range(0.0..=f32::MAX).ui(ui)
-            );
-
-            if ui.button("Reset").clicked() {
-                self.material = ElectricMaterial2::FREE_SPACE;
-            }
-        });
+        material_ui(&mut self.material, ui);
 
         self.import_clicked = ui.button("Import Mesh").clicked();
     }
@@ -230,23 +215,43 @@ impl ObjectExplorerUi {
             .enumerate()
             .map(|(i, (n, s))| (i, n, s))
         {
-            let mut pos = node.position();
-
-            let mut changed = false;
             ui.collapsing(&shape.raw_mesh.name, |ui| {
-                ui.label("Translation:");
-                ui.indent(i, |ui| {
-                    changed |= ui.add(egui::DragValue::new(&mut pos.x).speed(speed.x)).changed();
-                    changed |= ui.add(egui::DragValue::new(&mut pos.y).speed(speed.y)).changed();
-                    changed |= ui.add(egui::DragValue::new(&mut pos.z).speed(speed.x)).changed();
-                })
+                ui.collapsing("Transform", |ui| {
+                    let mut pos = node.position();
+                    let mut changed = false;
+                    ui.label("Translation:");
+                    ui.indent(i, |ui| {
+                        changed |= ui.add(egui::DragValue::new(&mut pos.x).speed(speed.x)).changed();
+                        changed |= ui.add(egui::DragValue::new(&mut pos.y).speed(speed.y)).changed();
+                        changed |= ui.add(egui::DragValue::new(&mut pos.z).speed(speed.x)).changed();
+                    });
+                    if changed {
+                        println!("{}", pos);
+                        node.set_position(pos);
+                    }
+                });
             });
-            if changed {
-                println!("{}", pos);
-                node.set_position(pos);
-            }
         }
     }
+}
+
+fn material_ui(material: &mut ElectricMaterial2, ui: &mut egui::Ui) {
+    ui.collapsing("Material Properties", |ui| {
+        ui.label("Relative Permeability (Tensor Diagonal):");
+        ui.indent("mu_r_indent", |ui| ui.horizontal(|ui| {
+            egui::DragValue::new(&mut material.mu_r.x).speed(0.01).range(0.0..=f32::MAX).ui(ui);
+            egui::DragValue::new(&mut material.mu_r.y).speed(0.01).range(0.0..=f32::MAX).ui(ui);
+        }));
+
+        ui.label("Relative Permittivity:");
+        ui.indent("eps_r_indent", |ui|
+            egui::DragValue::new(&mut material.eps_r_z).speed(0.01).range(0.0..=f32::MAX).ui(ui)
+        );
+
+        if ui.button("Reset").clicked() {
+            *material = ElectricMaterial2::FREE_SPACE;
+        }
+    });
 }
 
 pub struct FdtdData2 {
