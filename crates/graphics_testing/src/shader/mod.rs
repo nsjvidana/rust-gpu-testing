@@ -6,17 +6,15 @@ use std::path::Path;
 pub mod run_fdtd1;
 pub mod run_fdtd2;
 
-pub struct ImportedObjects<Material> {
+#[derive(Default)]
+pub struct ImportedObjects<Material: Default> {
     pub shapes: Vec<LoadedShape>,
     pub materials: Vec<Material>,
 }
 
-impl<Material> ImportedObjects<Material> {
+impl<Material: Default> ImportedObjects<Material> {
     pub fn new() -> Self {
-        Self {
-            shapes: vec![],
-            materials: vec![],
-        }
+        Self::default()
     }
 
     /// Add object shapes from a path. Supported file formats are: `.stl`, `.dae`, `.obj`
