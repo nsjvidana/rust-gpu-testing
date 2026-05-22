@@ -1,9 +1,9 @@
-use glam::{UVec3, Vec3};
-use khal::backend::{Backend, Buffer, DeviceValue, Encoder, GpuBackend, GpuBuffer, GpuEncoder, MaybeSendSync};
-use khal::BufferUsages;
-use khal::re_exports::bytemuck::{AnyBitPattern, NoUninit};
-use kiss3d::prelude::Polyline3d;
 use crate::prelude::*;
+use glam::{Mat3, Vec3, Vec3Swizzles};
+use khal::backend::{Backend, Buffer, DeviceValue, Encoder, GpuBackend, GpuBuffer, GpuEncoder};
+use khal::re_exports::bytemuck::{AnyBitPattern, NoUninit};
+use khal::BufferUsages;
+use kiss3d::prelude::{Color, Polyline3d, Window};
 
 pub struct GpuBufferReadable<T: DeviceValue + NoUninit + AnyBitPattern> {
     pub buffer: GpuBuffer<T>,
@@ -93,23 +93,25 @@ impl<T: DeviceValue + NoUninit + AnyBitPattern> CreateGpuBufferReadable<T> for T
     }
 }
 
-/// Constructs a [`kiss3d::prelude::Polyline3d`] that draws a bounding box with the extents `extents`
-/// and "origin vertex" at `position`
-pub fn bb_polyline(extents: Vec3, position: Vec3) -> Polyline3d {
-    let v0 = position;
-    let v0x = position + Vec3::new(extents.x, 0., 0.);
-    let v0xy = position + Vec3::new(extents.x, extents.y, 0.);
-    let v0y = position + Vec3::new(0., extents.y, 0.);
-    let v1 = v0 + Vec3::new(0., 0., extents.z);
-    let v1x = v0x + Vec3::new(0., 0., extents.z);
-    let v1xy = v0xy + Vec3::new(0., 0., extents.z);
-    let v1y = v0y + Vec3::new(0., 0., extents.z);
-    Polyline3d::new(vec![
-        v0, v0x, v0xy, v0y, v0,
-        v1, v1x, v1xy, v1y, v1,
-        v1x, v0x, v0xy, v1xy,
-        v1y, v0y
-    ])
+/// Draws a bounding box `bb` where `bb = [min, max]` of the bb's bounds.
+pub fn draw_bb(window: &mut Window, bb: [Vec3; 2], color: Color, width: f32, perspective: bool) {
+    let [dx, dy, dz] = Mat3::from_diagonal(bb[1] - bb[0]).to_cols_array_2d()
+        .map(|v| Vec3::from(v));
+    let btm = [bb[0], bb[1] - dz];
+    let top = [bb[0] + dz, bb[1]];
+    
+    window.draw_line(btm[0], btm[0] + dx, color, width, perspective);
+    window.draw_line(btm[0], btm[0] + dy, color, width, perspective);
+    window.draw_line(btm[0], btm[0] + dz, color, width, perspective);
+    window.draw_line(btm[1], btm[1] - dx, color, width, perspective);
+    window.draw_line(btm[1], btm[1] - dy, color, width, perspective);
+    window.draw_line(btm[1], btm[1] - dz, color, width, perspective);
+    window.draw_line(top[0], top[0] + dx, color, width, perspective);
+    window.draw_line(top[0], top[0] + dy, color, width, perspective);
+    window.draw_line(top[0], top[0] + dz, color, width, perspective);
+    window.draw_line(top[1], top[1] - dx, color, width, perspective);
+    window.draw_line(top[1], top[1] - dy, color, width, perspective);
+    window.draw_line(top[1], top[1] - dz, color, width, perspective);
 }
 
 /// Creates a [`kiss3d::prelude::Polyline3d`] that draws an arrow starting at `position`, pointing in

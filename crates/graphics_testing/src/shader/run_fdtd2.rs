@@ -1,6 +1,7 @@
-use std::path::{Path, PathBuf};
+use crate::error::ObjectError;
 use crate::prelude::GpuResult;
-use crate::util::{bb_polyline, CreateGpuBuffer, CreateGpuBufferReadable, GpuBufferReadable};
+use crate::shader::ImportedObjects;
+use crate::util::{draw_bb, CreateGpuBuffer, CreateGpuBufferReadable, GpuBufferReadable};
 use glam::{USizeVec3, UVec2, UVec3, Vec2};
 use itertools::izip;
 use khal::backend::{Backend, DispatchGrid, Encoder, GpuBackend, GpuBuffer};
@@ -10,8 +11,7 @@ use kiss3d::egui::Widget;
 use kiss3d::prelude::*;
 use shader_crate::fdtd2::{Fdtd2, GpuSource2, GridCell2, GridInfo2, MaterialConstants2, SoftSource2};
 use shader_crate::{flat_idx_to_vector, vector_to_flat_idx};
-use crate::error::ObjectError;
-use crate::shader::ImportedObjects;
+use std::path::{Path, PathBuf};
 
 #[derive(Shader)]
 struct GpuKernels2 {
@@ -59,7 +59,8 @@ pub struct RenderData2 {
 
     pub cell_positions: Vec<Vec3>,
     pub en_color: Color,
-    pub grid_bb: Polyline3d,
+    /// Min and max of grid bounds
+    pub grid_bb: [Vec3; 2],
     pub alpha_threshold: f32,
     pub max_en_value: f32,
 }
@@ -85,10 +86,7 @@ impl RenderData2 {
         let n_cells3 = USizeVec3::from((grid.n_cells.as_usizevec2(), 1));
         let cell_size3 = Vec3::from((grid.cell_size, 0.));
 
-        let grid_bb = bb_polyline(
-            Vec3::from(cell_size3 * n_cells3.as_vec3()),
-            Vec3::ZERO
-        );
+        let grid_bb = [Vec3::ZERO, Vec3::from(cell_size3 * n_cells3.as_vec3())];
 
         Self {
             scene,
@@ -102,6 +100,7 @@ impl RenderData2 {
                     i3.as_vec3() * cell_size3
                 })
                 .collect(),
+
             grid_bb,
             en_color,
             alpha_threshold,
@@ -157,7 +156,7 @@ impl RenderData2 {
             }
         }
 
-        window.draw_polyline(&self.grid_bb);
+        draw_bb(window, self.grid_bb, WHITE, 2., false);
     }
 
     pub fn egui_windows(&mut self, data: &mut FdtdData2, ctx: &egui::Context) {
@@ -275,6 +274,7 @@ impl FdtdData2 {
     }
 
     pub fn min_wavelength(&mut self, f_max: f32, cells_per_wavelength: usize) -> &mut Self {
+        // TODO: if n becomes a matrix, use svd and principal right-singular vector to find n_max?
         let n_max = self.materials.iter()
             .max_by(|m1, m2| m1.n.total_cmp(&m2.n))
             .map(|m| m.n)
