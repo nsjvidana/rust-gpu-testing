@@ -38,63 +38,47 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
 
     // Set up window
     let mut window = Window::new("FDTD 2D").await;
-    let grid_dims = data.grid.cell_size * data.grid.n_cells.as_vec2();
-    let z_far = (data.grid.n_cells.as_vec2() * data.grid.cell_size).max_element() * 10.;
-    let mut camera = OrbitCamera3d::new_with_frustum(
-        core::f32::consts::PI / 4.0, data.grid.cell_size.min_element(), z_far,
-        Vec3::splat(grid_dims.max_element()),
-        Vec3::from((grid_dims / 2., 0.))
-    );
-        camera.set_up_axis_dir(Vec3::Z);
-    let mut scene = SceneNode3d::empty();
-    scene
-        .add_light(Light::point(100.0))
-        .set_position(Vec3::new(0.0, 2.0, -2.0));
     let mut render_data = RenderData2::new(&data, 0.01);
-    let mut max_en_magnitude = 0.;
     // Main render loop
-    while window.render_3d(&mut scene, &mut camera).await {
+    render_data.render_loop(&mut window, &mut data, async |window, data| {
         if window.get_key(Key::T) == Action::Press {
             backend.synchronize()?;
             runner.cells.read(backend, &mut data.grid.cells).await?;
             runner.submit_step(&gpu_kernels, backend)?;
-
-            let curr_max_en_mag = data.grid.cells.iter()
-                .map(|c| c.en_z)
-                .max_by(|a, b| a.total_cmp(b))
-                .unwrap();
-            if curr_max_en_mag > max_en_magnitude {
-                println!("New max En magnitude: {}", curr_max_en_mag);
-                max_en_magnitude = curr_max_en_mag;
-            }
         }
-
-        if render_data.import_ui.import_clicked {
-            data.import_mesh(&render_data.import_ui.file_path, render_data.import_ui.material)
-                .unwrap();
-        }
-        render_data.render_simulation(&mut window, &data, max_en_magnitude);
-
-        window.draw_ui(|ctx| {
-            render_data.import_window(ctx);
-        });
-    }
-
-    Ok(())
+        Ok(())
+    }).await
 }
 
 pub struct RenderData2 {
+    pub scene: SceneNode3d,
+    pub camera: OrbitCamera3d,
+    pub import_ui: ImportUi2,
+
     pub cell_positions: Vec<Vec3>,
     pub en_color: Color,
     pub grid_bb: Polyline3d,
     pub alpha_threshold: f32,
-
-    pub import_ui: ImportUi2
+    pub max_en_value: f32,
 }
 
 impl RenderData2 {
     pub fn new(data: &FdtdData2, alpha_threshold: f32) -> Self {
         let grid = &data.grid;
+
+        let grid_dims = grid.cell_size * grid.n_cells.as_vec2();
+        let z_far = (grid.n_cells.as_vec2() * grid.cell_size).max_element() * 10.;
+        let mut camera = OrbitCamera3d::new_with_frustum(
+            core::f32::consts::PI / 4.0, grid.cell_size.min_element(), z_far,
+            Vec3::splat(grid_dims.max_element()),
+            Vec3::from((grid_dims / 2., 0.))
+        );
+        camera.set_up_axis_dir(Vec3::Z);
+        let mut scene = SceneNode3d::empty();
+        scene
+            .add_light(Light::point(100.0))
+            .set_position(Vec3::new(0.0, 2.0, -2.0));
+        
         let en_color = RED;
         let n_cells3 = USizeVec3::from((grid.n_cells.as_usizevec2(), 1));
         let cell_size3 = Vec3::from((grid.cell_size, 0.));
@@ -105,6 +89,10 @@ impl RenderData2 {
         );
 
         Self {
+            scene,
+            camera,
+            import_ui: Default::default(),
+
             cell_positions: (0..grid.cells.len())
                 .map(|i| {
                     let i3 = flat_idx_to_vector!(i, n_cells3, USizeVec3);
@@ -114,23 +102,51 @@ impl RenderData2 {
             grid_bb,
             en_color,
             alpha_threshold,
-
-            import_ui: Default::default()
+            max_en_value: 0.,
         }
+    }
+
+    pub async fn render_loop(
+        &mut self,
+        window: &mut Window,
+        data: &mut FdtdData2,
+        mut callback: impl AsyncFnMut(&mut Window, &mut FdtdData2) -> GpuResult<()>
+    ) -> GpuResult<()> {
+        while window.render_3d(&mut self.scene, &mut self.camera).await {
+            callback(window, data).await?;
+
+            if self.import_ui.import_clicked {
+                data.import_mesh(&self.import_ui.file_path, self.import_ui.material)
+                    .unwrap();
+            }
+            let curr_max_en_mag = data.grid.cells.iter()
+                .map(|c| c.en_z)
+                .max_by(|a, b| a.total_cmp(b))
+                .unwrap();
+            if curr_max_en_mag > self.max_en_value {
+                println!("New max En magnitude: {}", curr_max_en_mag);
+                self.max_en_value = curr_max_en_mag;
+            }
+            self.render_simulation(window, &data);
+
+            window.draw_ui(|ctx| {
+                self.import_window(ctx);
+            });
+        }
+        Ok(())
     }
 
     pub fn render_simulation(
         &mut self,
         window: &mut Window,
         data: &FdtdData2,
-        max_en_value: f32,
     ) {
         let cell_diagonal_len = data.grid.cell_size.length();
         for (c, pos) in data.grid.cells.iter()
             .zip(self.cell_positions.iter())
         {
             // Drawing En field
-            let alpha = c.en_z.abs() / max_en_value;
+            let alpha = c.en_z.abs() / self.max_en_value;
             if alpha > self.alpha_threshold {
                 let color = self.en_color.with_alpha(alpha);
                 let line_len = alpha * cell_diagonal_len * c.en_z.signum();
