@@ -1,10 +1,10 @@
-use std::path::Path;
 use crate::prelude::GpuResult;
 use crate::util::{bb_polyline, CreateGpuBuffer, CreateGpuBufferReadable, GpuBufferReadable};
 use glam::{USizeVec3, UVec2, UVec3, Vec2};
 use khal::backend::{Backend, DispatchGrid, Encoder, GpuBackend, GpuBuffer};
 use khal::Shader;
 use kiss3d::egui;
+use kiss3d::egui::Widget;
 use kiss3d::prelude::*;
 use shader_crate::fdtd2::{Fdtd2, GpuSource2, GridCell2, GridInfo2, MaterialConstants2, SoftSource2};
 use shader_crate::{flat_idx_to_vector, vector_to_flat_idx};
@@ -67,7 +67,10 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
         }
         
         render_data.render_simulation(&mut window, &data, max_en_magnitude);
-        render_data.egui_window(&mut window);
+
+        window.draw_ui(|ctx| {
+            render_data.import_window(ctx);
+        });
     }
 
     Ok(())
@@ -78,6 +81,8 @@ pub struct RenderData2 {
     pub en_color: Color,
     pub grid_bb: Polyline3d,
     pub alpha_threshold: f32,
+
+    pub import_ui: ImportUi2
 }
 
 impl RenderData2 {
@@ -101,7 +106,9 @@ impl RenderData2 {
                 .collect(),
             grid_bb,
             en_color,
-            alpha_threshold
+            alpha_threshold,
+
+            import_ui: Default::default()
         }
     }
 
@@ -127,15 +134,46 @@ impl RenderData2 {
         window.draw_polyline(&self.grid_bb);
     }
 
-    pub fn egui_window(&mut self, window: &mut Window) {
-        window.draw_ui(|ctx| {
-            egui::Window::new("Import mesh")
-                .show(ctx, |ui| self.ui(ui));
-        });
+    pub fn import_window(&mut self, ctx: &egui::Context) {
+        egui::Window::new("Import Mesh")
+            .show(ctx, |ui| self.import_ui.ui(ui));
     }
+}
 
+#[derive(Default)]
+pub struct ImportUi2 {
+    pub file_path: String,
+    pub material: ElectricMaterial2
+    // TODO: register if the "import" button is clicked
+}
+
+impl ImportUi2 {
     pub fn ui(&mut self, ui: &mut egui::Ui) {
-        ui.label("Hi");
+        let mut browse = false;
+        ui.horizontal(|ui| {
+            ui.text_edit_singleline(&mut self.file_path);
+            browse = ui.button("Browse").clicked();
+            if browse {
+                todo!("Browse mesh files");
+            }
+        });
+
+        ui.collapsing("Material Properties", |ui| {
+            ui.label("Relative Permeability (Tensor Diagonal):");
+            ui.indent("mu_r_indent", |ui| ui.horizontal(|ui| {
+                egui::DragValue::new(&mut self.material.mu_r.x).speed(0.01).range(0.0..=f32::MAX).ui(ui);
+                egui::DragValue::new(&mut self.material.mu_r.y).speed(0.01).range(0.0..=f32::MAX).ui(ui);
+            }));
+
+            ui.label("Relative Permittivity:");
+            ui.indent("eps_r_indent", |ui|
+                egui::DragValue::new(&mut self.material.eps_r_z).speed(0.01).range(0.0..=f32::MAX).ui(ui)
+            );
+
+            if ui.button("Reset").clicked() {
+                self.material = ElectricMaterial2::FREE_SPACE;
+            }
+        });
     }
 }
 
@@ -309,6 +347,8 @@ impl FdtdGrid2 {
     }
 }
 
+/// A material used in the FDTD simulation.
+/// Impedance and refractive index aren't tensors/vectors at the moment for simplicity
 #[derive(Copy, Clone, Debug)]
 pub struct ElectricMaterial2 {
     /// Relative Magnetic Permeability (X & Y component of tensor diagonal)
@@ -343,6 +383,12 @@ impl ElectricMaterial2 {
         }
     }
 
+    /// Computes refractive index and impedance, using the `x` component of `mu_r` only.
+    pub fn compute_values(&mut self) {
+        self.n = (self.eps_r_z * self.mu_r.x).sqrt();
+        self.impedance = f32::sqrt((Self::MU_0 * self.mu_r.x) / (Self::EPS_0 * self.eps_r_z));
+    }
+
     pub fn to_gpu(self, dt: f32) -> MaterialConstants2 {
         let c_0_dt = Self::C_0 * dt;
         MaterialConstants2 {
@@ -353,6 +399,12 @@ impl ElectricMaterial2 {
             en_z_update_coeff: 1. / self.eps_r_z,
             ..Default::default()
         }
+    }
+}
+
+impl Default for ElectricMaterial2 {
+    fn default() -> Self {
+        Self::FREE_SPACE
     }
 }
 
