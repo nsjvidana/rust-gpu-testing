@@ -1,3 +1,5 @@
+mod ui;
+
 use crate::error::ObjectError;
 use crate::prelude::GpuResult;
 use crate::shader::ImportedObjects;
