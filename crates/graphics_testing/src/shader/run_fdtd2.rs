@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use crate::prelude::GpuResult;
 use crate::util::{bb_polyline, CreateGpuBuffer, CreateGpuBufferReadable, GpuBufferReadable};
 use glam::{USizeVec3, UVec2, UVec3, Vec2};
+use itertools::izip;
 use khal::backend::{Backend, DispatchGrid, Encoder, GpuBackend, GpuBuffer};
 use khal::Shader;
 use kiss3d::egui;
@@ -206,14 +207,13 @@ impl ObjectExplorerUi {
         let ImportedObjects {
             scene_nodes,
             shapes,
+            materials,
             ..
         } = &mut data.imported_objects;
         let speed = data.grid.cell_size;
 
-        for (i, node, shape) in scene_nodes.iter_mut()
-            .zip(shapes.iter())
+        for (i, (node, shape, mat)) in izip!(scene_nodes, shapes, materials)
             .enumerate()
-            .map(|(i, (n, s))| (i, n, s))
         {
             ui.collapsing(&shape.raw_mesh.name, |ui| {
                 ui.collapsing("Transform", |ui| {
@@ -230,6 +230,7 @@ impl ObjectExplorerUi {
                         node.set_position(pos);
                     }
                 });
+                material_ui(mat, ui);
             });
         }
     }

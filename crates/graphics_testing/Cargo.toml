@@ -15,6 +15,7 @@ pollster.workspace = true
 rand.workspace = true
 include_dir.workspace = true
 rfd.workspace = true
+itertools.workspace = true
 thiserror.workspace = true
 rayon = "1.12.0"
 
