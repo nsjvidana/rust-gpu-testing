@@ -255,7 +255,9 @@ impl FdtdData2 {
         if self.materials.is_empty() {
             self.materials.push(ElectricMaterial2::FREE_SPACE);
         }
-        // TODO: include object materials
+        for mat in self.imported_objects.materials.iter().cloned() {
+            self.materials.push(mat);
+        }
         self
     }
 
