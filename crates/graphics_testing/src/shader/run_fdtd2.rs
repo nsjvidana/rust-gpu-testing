@@ -116,7 +116,7 @@ impl RenderData2 {
             callback(window, data).await?;
 
             if self.import_ui.import_clicked {
-                data.import_mesh(&self.import_ui.file_path, self.import_ui.material)
+                data.import_mesh(&mut self.scene, &self.import_ui.file_path, self.import_ui.material)
                     .unwrap();
             }
             let curr_max_en_mag = data.grid.cells.iter()
@@ -287,9 +287,9 @@ impl FdtdData2 {
     }
 
     /// Imports a mesh from a `path` as an object with a specific `material`.
-    pub fn import_mesh(&mut self, path: impl AsRef<Path>, material: ElectricMaterial2) -> Result<(), Vec<ObjectError>> {
+    pub fn import_mesh(&mut self, scene: &mut SceneNode3d, path: impl AsRef<Path>, material: ElectricMaterial2) -> Result<(), Vec<ObjectError>> {
         self.imported_objects.materials.push(material);
-        self.imported_objects.extend_from_path(path)
+        self.imported_objects.extend_from_path(path, scene)
     }
 
     pub fn create_gpu(&mut self, steps_per_submission: usize, backend: &GpuBackend) -> GpuResult<GpuFdtd2> {
