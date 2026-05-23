@@ -196,7 +196,6 @@ impl TestbedWindow2 {
         let pulse = GaussianPulse2::from_max_frequency(*source_max_frequency, 1.);
         data.set_source(pulse, *source_resolution);
 
-        // TODO: let user edit these hard-coded stability values
         data.min_wavelength(*source_max_frequency, stability.cells_per_wavelength)
             .cfl_condition(stability.dt_multiplier);
 
