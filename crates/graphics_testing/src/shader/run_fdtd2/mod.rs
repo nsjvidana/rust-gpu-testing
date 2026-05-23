@@ -14,6 +14,7 @@ use kiss3d::prelude::*;
 use shader_crate::fdtd2::{Fdtd2, GpuSource2, GridCell2, GridInfo2, MaterialConstants2, SoftSource2};
 use shader_crate::{flat_idx_to_vector, vector_to_flat_idx};
 use std::path::{Path, PathBuf};
+use crate::shader::run_fdtd2::ui::TestbedWindow2;
 
 #[derive(Shader)]
 struct GpuKernels2 {
@@ -40,10 +41,9 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
     let mut runner = data.create_gpu(1, backend)?;
 
     // Set up window
-    let mut window = Window::new("FDTD 2D").await;
-    let mut render_data = RenderData2::new(&data, 0.01);
+    let mut window = TestbedWindow2::new("FDTD 2D", 0.).await;
     // Main render loop
-    render_data.render_loop(&mut window, &mut data, async |window, data| {
+    window.render_loop(&mut data, async |window, data| {
         if window.get_key(Key::T) == Action::Press {
             backend.synchronize()?;
             runner.cells.read(backend, &mut data.grid.cells).await?;
@@ -51,6 +51,15 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
         }
         Ok(())
     }).await
+    // let mut render_data = RenderData2::new(&data, 0.01);
+    // render_data.render_loop(&mut window, &mut data, async |window, data| {
+    //     if window.get_key(Key::T) == Action::Press {
+    //         backend.synchronize()?;
+    //         runner.cells.read(backend, &mut data.grid.cells).await?;
+    //         runner.submit_step(&gpu_kernels, backend)?;
+    //     }
+    //     Ok(())
+    // }).await
 }
 
 pub struct RenderData2 {

@@ -1,4 +1,3 @@
-use std::hash::Hash;
 use crate::prelude::GpuResult;
 use crate::shader::run_fdtd2::{ElectricMaterial2, FdtdData2};
 use crate::shader::ImportedObjects;
@@ -73,6 +72,7 @@ impl TestbedWindow2 {
             if self.import_ui.import_clicked {
                 data.import_mesh(&mut self.scene, &self.import_ui.file_path, self.import_ui.material)
                     .unwrap();
+                self.add_shape_as_object(data.imported_objects.shapes.last().unwrap());
             }
             let curr_max_en_mag = data.grid.cells.iter()
                 .map(|c| c.en_z)
@@ -82,7 +82,7 @@ impl TestbedWindow2 {
                 println!("New max En magnitude: {}", curr_max_en_mag);
                 self.max_en_value = curr_max_en_mag;
             }
-            self.render_simulation(&data);
+            // self.render_simulation(&data);
 
             self.egui_windows(data);
         }
