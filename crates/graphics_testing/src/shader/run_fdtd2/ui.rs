@@ -1,5 +1,6 @@
 use crate::error::ObjectError;
 use crate::prelude::GpuResult;
+use crate::shader::{parry3d, parrymath};
 use crate::shader::run_fdtd2::{ElectricMaterial2, FdtdData2, FdtdGrid2, GaussianPulse2};
 use crate::shader::ImportedObjects;
 use crate::util::draw_bb;
@@ -21,6 +22,7 @@ pub struct TestbedWindow2 {
 
     pub max_en_value: f32,
     pub en_color: Color,
+    /// The `[min, max]` of the FDTD grid's bounds. Includes the Z-level of the 2D grid
     pub grid_bb: [Vec3; 2],
     pub cell_positions: Vec<Vec3>,
     pub alpha_threshold: f32,
@@ -55,25 +57,31 @@ impl TestbedWindow2 {
     pub async fn render_loop(
         &mut self,
         data: &mut FdtdData2,
-        mut callback: impl AsyncFnMut(&mut Window, &mut FdtdData2) -> GpuResult<()>
+        mut callback: impl AsyncFnMut(&mut Window, &mut FdtdData2, &SimulationControlUi2) -> GpuResult<()>
     ) -> GpuResult<()> {
         self.update_grid_bb();
         self.update_cell_positions(&data.grid);
 
         while self.window.render_3d(&mut self.scene, &mut self.camera).await {
-            callback(&mut self.window, data).await?;
+            if self.simulation_control_ui.just_started {
+                self.update_simulation_data(data);
+            }
+            callback(&mut self.window, data, &self.simulation_control_ui).await?;
 
             if self.import_ui.import_clicked {
                 self.object_explorer_ui.import_mesh(&mut self.scene, &self.import_ui.file_path, self.import_ui.material)
                     .unwrap();
+                self.update_grid_bb();
             }
+
             let curr_max_en_mag = data.grid.cells.iter()
                 .map(|c| c.en_z)
-                .max_by(|a, b| a.total_cmp(b))
-                .unwrap();
-            if curr_max_en_mag > self.max_en_value {
-                println!("New max En magnitude: {}", curr_max_en_mag);
-                self.max_en_value = curr_max_en_mag;
+                .max_by(|a, b| a.total_cmp(b));
+            if let Some(curr_max_en_mag) = curr_max_en_mag {
+                if curr_max_en_mag > self.max_en_value {
+                    println!("New max En magnitude: {}", curr_max_en_mag);
+                    self.max_en_value = curr_max_en_mag;
+                }
             }
             self.render_simulation(&data);
 
@@ -140,6 +148,7 @@ impl TestbedWindow2 {
         self.window.draw_ui(|ctx| {
             egui::Window::new("Import Mesh")
                 .show(ctx, |ui| self.import_ui.ui(ui));
+            // TODO: detect change in this UI
             egui::Window::new("Object Explorer")
                 .show(ctx, |ui| self.object_explorer_ui.ui(ui));
             egui::Window::new("Simulation Control")
@@ -149,13 +158,21 @@ impl TestbedWindow2 {
 
     /// Updates parameters of the simulation with the info typed into the egui UIs.
     pub fn update_simulation_data(&self, data: &mut FdtdData2) {
-        data.materials.truncate(1);
-        data.prepare_materials();
-
         let SimulationControlUi2 {
             source_max_frequency,
             ..
         } = &self.simulation_control_ui;
+        let ImportedObjects {
+            shapes: obj_shapes,
+            scene_nodes: obj_nodes,
+            materials: obj_mats,
+            ..
+        } = &self.object_explorer_ui.imported_objects;
+
+        data.materials.truncate(1);
+        data.prepare_materials();
+        data.materials.extend_from_slice(&obj_mats);
+
         let pulse = GaussianPulse2::from_max_frequency(*source_max_frequency, 1.);
         data.set_source(pulse, 10);
 
@@ -163,14 +180,42 @@ impl TestbedWindow2 {
         data.min_wavelength(*source_max_frequency, 20)
             .cfl_condition(3.);
 
+        // Update grid dimensions & grid cells to encompass all objects
         let [min, max] = self.grid_bb;
         let aabb_dimensions = max - min;
         data.grid.n_cells = (aabb_dimensions.xy() / data.grid.cell_size).ceil().as_uvec2();
-        data.update_cells();
+            data.update_cells();
+        let n_cellsi = data.grid.n_cells.as_ivec2();
 
-        // TODO: use rapier3d::parry::shape::Voxels to do this.
-        //       scirs2-ndimage crate can help with implementing dielectric smoothing
-        todo!("update grid cells with objects")
+        // Discretize objects for grid cells
+        let voxels = {
+            let mut coords = Vec::new();
+            for y in 0..n_cellsi.y {
+                for x in 0..n_cellsi.x {
+                    coords.push(parrymath::IVector::new(x, y, 0));
+                }
+            }
+            parry3d::shape::Voxels::new(
+                parrymath::Vec3::new(data.grid.cell_size.x, data.grid.cell_size.y, 0.),
+                coords.as_slice()
+            )
+        };
+        let vox_shape = parry3d::shape::Cuboid::new(voxels.voxel_size() / 2.);
+        for (i, vox) in voxels.voxels().enumerate() {
+            println!("{}", vox.grid_coords);
+            let vox_pose = parrymath::Pose::from_translation(vox.center);
+            for (obj, node) in izip!(obj_shapes, obj_nodes) {
+                let obj_translation = parrymath::Vector::from_array((node.position() - self.grid_bb[0]).to_array());
+                let obj_pose = parrymath::Pose::from_translation(obj_translation);
+                let hit = parry3d::query::intersection_test(&vox_pose, &vox_shape, &obj_pose, &*obj.shape)
+                    .is_ok_and(|b| b);
+                if hit {
+                    data.grid.cells[i].material_i = i as u32 + 1;
+                }
+            }
+        }
+
+        // TODO: dielectric smoothing. scirs2-ndimage crate can help with this.
     }
 }
 

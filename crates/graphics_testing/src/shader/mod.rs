@@ -4,6 +4,8 @@ use rapier3d::geometry::MeshConverter;
 use rapier3d_meshloader::*;
 use std::path::Path;
 use kiss3d::procedural::{IndexBuffer, RenderMesh};
+pub use rapier3d::parry as parry3d;
+pub use parry3d::math as parrymath;
 
 pub mod run_fdtd1;
 pub mod run_fdtd2;

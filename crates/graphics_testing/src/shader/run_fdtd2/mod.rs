@@ -43,7 +43,10 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
     // Set up window
     let mut window = TestbedWindow2::new("FDTD 2D", 0.).await;
     // Main render loop
-    window.render_loop(&mut data, async |window, data| {
+    window.render_loop(&mut data, async |window, data, sim| {
+        if sim.just_started {
+
+        }
         if window.get_key(Key::T) == Action::Press {
             backend.synchronize()?;
             runner.cells.read(backend, &mut data.grid.cells).await?;
