@@ -1,11 +1,14 @@
 use crate::error::ObjectError;
 use crate::prelude::GpuResult;
-use crate::shader::run_fdtd2::{ElectricMaterial2, FdtdData2};
+use crate::shader::run_fdtd2::{ElectricMaterial2, FdtdData2, FdtdGrid2};
 use crate::shader::ImportedObjects;
 use itertools::izip;
 use kiss3d::egui;
 use kiss3d::prelude::*;
 use std::path::{Path, PathBuf};
+use glam::USizeVec3;
+use shader_crate::flat_idx_to_vector;
+use crate::util::draw_bb;
 
 pub struct TestbedWindow2 {
     pub window: Window,
@@ -19,6 +22,7 @@ pub struct TestbedWindow2 {
     pub max_en_value: f32,
     pub en_color: Color,
     pub grid_bb: [Vec3; 2],
+    pub cell_positions: Vec<Vec3>,
     pub alpha_threshold: f32,
 }
 
@@ -31,7 +35,7 @@ impl TestbedWindow2 {
         scene
             .add_light(Light::point(100.0))
             .set_position(Vec3::new(0.0, 2.0, -2.0));
-        Self { 
+        Self {
             window,
             scene,
             camera,
@@ -43,6 +47,7 @@ impl TestbedWindow2 {
             max_en_value: 0.,
             en_color: RED,
             grid_bb: [Vec3::ZERO; 2],
+            cell_positions: vec![],
             alpha_threshold,
         }
     }
@@ -52,6 +57,9 @@ impl TestbedWindow2 {
         data: &mut FdtdData2,
         mut callback: impl AsyncFnMut(&mut Window, &mut FdtdData2) -> GpuResult<()>
     ) -> GpuResult<()> {
+        self.compute_grid_bb();
+        self.update_cell_positions(&data.grid);
+
         while self.window.render_3d(&mut self.scene, &mut self.camera).await {
             callback(&mut self.window, data).await?;
 
@@ -67,7 +75,7 @@ impl TestbedWindow2 {
                 println!("New max En magnitude: {}", curr_max_en_mag);
                 self.max_en_value = curr_max_en_mag;
             }
-            // self.render_simulation(&data);
+            self.render_simulation(&data);
 
             self.egui_windows();
         }
@@ -78,7 +86,32 @@ impl TestbedWindow2 {
         &mut self,
         data: &FdtdData2,
     ) {
-        todo!()
+        let cell_diagonal_len = data.grid.cell_size.length();
+        for (c, pos) in data.grid.cells.iter()
+            .zip(self.cell_positions.iter())
+        {
+            // Drawing En field
+            let alpha = c.en_z.abs() / self.max_en_value;
+            if alpha > self.alpha_threshold {
+                let color = self.en_color.with_alpha(alpha);
+                let line_len = alpha * cell_diagonal_len * c.en_z.signum();
+                self.window.draw_line(*pos, pos + Vec3::new(0., 0., line_len), color, 2., false);
+            }
+        }
+
+        draw_bb(&mut self.window, self.grid_bb, WHITE, 2., false);
+        // todo!()
+    }
+
+    pub fn update_cell_positions(&mut self, grid: &FdtdGrid2) {
+        let cell_size3 = Vec3::from((grid.cell_size, 0.));
+        let n_cells3 = USizeVec3::from((grid.n_cells.as_usizevec2(), 1));
+        self.cell_positions = (0..grid.cells.len())
+            .map(|i| {
+                let i3 = flat_idx_to_vector!(i, n_cells3, USizeVec3);
+                i3.as_vec3() * cell_size3 + self.grid_bb[0]
+            })
+            .collect();
     }
 
     pub fn compute_grid_bb(&mut self) {
