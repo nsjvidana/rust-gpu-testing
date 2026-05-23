@@ -124,7 +124,7 @@ impl FdtdData2 {
     /// Set the `GaussianPulse2` source for this simulation.
     ///
     /// `resolution` should be at least `10` to `20` for better results
-    pub fn set_source(&mut self, pulse: GaussianPulse2, resolution: u32) -> &mut Self {
+    pub fn set_source(&mut self, pulse: GaussianPulse2, resolution: usize) -> &mut Self {
         self.dt = self.dt.min(pulse.tau / resolution as f32);
         self.source = pulse;
         self

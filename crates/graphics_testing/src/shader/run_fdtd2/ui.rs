@@ -178,6 +178,7 @@ impl TestbedWindow2 {
     pub fn update_simulation_data(&mut self, data: &mut FdtdData2) {
         let SimulationControlUi2 {
             source_max_frequency,
+            source_resolution,
             stability_values2: stability,
             ..
         } = &self.simulation_control_ui;
@@ -193,7 +194,7 @@ impl TestbedWindow2 {
         data.materials.extend_from_slice(&obj_mats);
 
         let pulse = GaussianPulse2::from_max_frequency(*source_max_frequency, 1.);
-        data.set_source(pulse, 10);
+        data.set_source(pulse, *source_resolution);
 
         // TODO: let user edit these hard-coded stability values
         data.min_wavelength(*source_max_frequency, stability.cells_per_wavelength)
@@ -246,6 +247,7 @@ impl TestbedWindow2 {
 #[derive(Default)]
 pub struct SimulationControlUi2 {
     pub source_max_frequency: f32,
+    pub source_resolution: usize,
     pub grid_z_level: f32,
     pub stability_values2: StabilityValues2,
 
@@ -260,9 +262,14 @@ impl SimulationControlUi2 {
     pub fn ui(&mut self, ui: &mut egui::Ui) -> bool {
         let mut changed = false;
 
-        ui.label("Gaussian Pulse Max Frequency:");
-        changed |= egui::DragValue::new(&mut self.source_max_frequency).speed(0.5).range(1e-20..=f32::MAX).ui(ui)
-            .changed();
+        ui.collapsing("Gaussian Pulse Source:", |ui| {
+            ui.label("Max Frequency:");
+            changed |= egui::DragValue::new(&mut self.source_max_frequency).speed(0.1).range(1e-20..=f32::MAX).ui(ui)
+                .changed();
+            ui.label("Resolution:");
+            changed |= egui::DragValue::new(&mut self.source_resolution).speed(1).range(1..=u32::MAX).ui(ui)
+                .changed();
+        });
 
         ui.label("Grid Z Level:");
         changed |= egui::DragValue::new(&mut self.grid_z_level).speed(0.01).ui(ui).changed();
