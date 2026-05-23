@@ -1,16 +1,16 @@
 use crate::error::ObjectError;
 use crate::prelude::GpuResult;
-use crate::shader::{parry3d, parrymath};
 use crate::shader::run_fdtd2::{ElectricMaterial2, FdtdData2, FdtdGrid2, GaussianPulse2};
 use crate::shader::ImportedObjects;
+use crate::shader::{parry3d, parrymath};
 use crate::util::draw_bb;
 use glam::USizeVec3;
 use itertools::izip;
 use kiss3d::egui;
+use kiss3d::egui::Widget;
 use kiss3d::prelude::*;
 use shader_crate::flat_idx_to_vector;
 use std::path::{Path, PathBuf};
-use kiss3d::egui::Widget;
 
 pub struct TestbedWindow2 {
     pub window: Window,
@@ -33,7 +33,9 @@ pub struct TestbedWindow2 {
 impl TestbedWindow2 {
     pub async fn new(name: &str, alpha_threshold: f32) -> Self {
         let window = Window::new(name).await;
-        let mut camera = OrbitCamera3d::default();
+        let mut camera = OrbitCamera3d::new_with_frustum(
+            core::f32::consts::PI / 4.0, 1e-3, f32::MAX, Vec3::X, Vec3::ZERO
+        );
         camera.set_up_axis_dir(Vec3::Z);
         let mut scene = SceneNode3d::empty();
         scene
@@ -152,12 +154,6 @@ impl TestbedWindow2 {
         min.z = self.simulation_control_ui.grid_z_level;
         max.z = self.simulation_control_ui.grid_z_level;
         self.grid_bb = [min, max];
-
-        let z_far = (max - min).length_squared().max(1000.);
-        let eye = self.camera.eye();
-        let at = self.camera.at();
-        self.camera = OrbitCamera3d::new_with_frustum(core::f32::consts::PI / 4.0, 1e-9, z_far, eye, at);
-        self.camera.set_up_axis_dir(Vec3::Z);
     }
 
     pub fn egui_windows(&mut self) {
@@ -214,7 +210,6 @@ impl TestbedWindow2 {
         let bb_dimensions_sim = self.grid_bb_sim[1] - self.grid_bb_sim[0];
         data.grid.n_cells = (bb_dimensions_sim.xy() / data.grid.cell_size).ceil().as_uvec2();
             data.update_cells();
-        println!("{:?}", self.grid_bb);
         let n_cellsi = data.grid.n_cells.as_ivec2();
 
         // Discretize objects for grid cells
