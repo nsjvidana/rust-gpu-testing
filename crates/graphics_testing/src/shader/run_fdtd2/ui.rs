@@ -17,6 +17,7 @@ pub struct TestbedWindow2 {
 
     pub max_en_value: f32,
     pub en_color: Color,
+    pub grid_bb: [Vec3; 2],
     pub alpha_threshold: f32,
 }
 
@@ -39,6 +40,7 @@ impl TestbedWindow2 {
 
             max_en_value: 0.,
             en_color: RED,
+            grid_bb: [Vec3::ZERO; 2],
             alpha_threshold,
         }
     }
@@ -75,6 +77,25 @@ impl TestbedWindow2 {
         data: &FdtdData2,
     ) {
         todo!()
+    }
+
+    pub fn compute_grid_bb(&mut self) {
+        let ImportedObjects {
+            scene_nodes,
+            shapes,
+            ..
+        } = &self.object_explorer_ui.imported_objects;
+
+        let mut min = Vec3::ZERO;
+        let mut max = Vec3::ZERO;
+        for (node, shape) in izip!(scene_nodes, shapes) {
+            let aabb = shape.shape.compute_local_aabb();
+            let new_min = Vec3::from_array(aabb.mins.to_array()) + node.position();
+            let new_max = Vec3::from_array(aabb.maxs.to_array()) + node.position();
+            min = min.min(new_min);
+            max = max.max(new_max);
+        }
+        self.grid_bb = [min, max];
     }
 
     pub fn egui_windows(&mut self) {
