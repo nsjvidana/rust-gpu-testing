@@ -1,18 +1,16 @@
+use crate::error::ObjectError;
 use crate::prelude::GpuResult;
 use crate::shader::run_fdtd2::{ElectricMaterial2, FdtdData2};
 use crate::shader::ImportedObjects;
 use itertools::izip;
 use kiss3d::egui;
 use kiss3d::prelude::*;
-use kiss3d::procedural::{IndexBuffer, RenderMesh};
-use rapier3d_meshloader::LoadedShape;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub struct TestbedWindow2 {
     pub window: Window,
     pub scene: SceneNode3d,
     pub camera: OrbitCamera3d,
-    pub object_nodes: Vec<SceneNode3d>,
 
     pub import_ui: ImportUi2,
     pub object_explorer_ui: ObjectExplorerUi,
@@ -35,7 +33,6 @@ impl TestbedWindow2 {
             window,
             scene,
             camera,
-            object_nodes: vec![],
 
             import_ui: ImportUi2::default(),
             object_explorer_ui: ObjectExplorerUi::default(),
@@ -44,21 +41,6 @@ impl TestbedWindow2 {
             en_color: RED,
             alpha_threshold,
         }
-    }
-    
-    pub fn add_shape_as_object(&mut self, shape: &LoadedShape) {
-        let mesh = &shape.raw_mesh;
-
-        let node = self.scene.add_render_mesh(
-            RenderMesh::new(
-                mesh.vertices.iter().map(|v| Vec3::from_array(*v)).collect(),
-                Some(mesh.normals.iter().map(|v| Vec3::from_array(*v)).collect()),
-                None,
-                Some(IndexBuffer::Unified(mesh.faces.clone()))
-            ),
-            Vec3::ONE
-        );
-        self.object_nodes.push(node);
     }
 
     pub async fn render_loop(
@@ -70,9 +52,8 @@ impl TestbedWindow2 {
             callback(&mut self.window, data).await?;
 
             if self.import_ui.import_clicked {
-                data.import_mesh(&mut self.scene, &self.import_ui.file_path, self.import_ui.material)
+                self.object_explorer_ui.import_mesh(&mut self.scene, &self.import_ui.file_path, self.import_ui.material)
                     .unwrap();
-                self.add_shape_as_object(data.imported_objects.shapes.last().unwrap());
             }
             let curr_max_en_mag = data.grid.cells.iter()
                 .map(|c| c.en_z)
@@ -84,7 +65,7 @@ impl TestbedWindow2 {
             }
             // self.render_simulation(&data);
 
-            self.egui_windows(data);
+            self.egui_windows();
         }
         Ok(())
     }
@@ -96,12 +77,12 @@ impl TestbedWindow2 {
         todo!()
     }
 
-    pub fn egui_windows(&mut self, data: &mut FdtdData2) {
+    pub fn egui_windows(&mut self) {
         self.window.draw_ui(|ctx| {
             egui::Window::new("Import Mesh")
                 .show(ctx, |ui| self.import_ui.ui(ui));
             egui::Window::new("Object Explorer")
-                .show(ctx, |ui| self.object_explorer_ui.explorer_ui(data, &mut self.object_nodes, ui));
+                .show(ctx, |ui| self.object_explorer_ui.explorer_ui(ui));
         });
     }
 }
@@ -138,24 +119,31 @@ impl ImportUi2 {
 }
 
 #[derive(Default)]
-pub struct ObjectExplorerUi;
+pub struct ObjectExplorerUi {
+    pub imported_objects: ImportedObjects<ElectricMaterial2>
+}
 
 impl ObjectExplorerUi {
-    pub fn explorer_ui(&mut self, data: &mut FdtdData2, object_nodes: &mut Vec<SceneNode3d>, ui: &mut egui::Ui) {
+    pub fn explorer_ui(&mut self, ui: &mut egui::Ui) {
         let ImportedObjects {
+            scene_nodes,
             shapes,
             materials,
             ..
-        } = &mut data.imported_objects;
-        let speed = data.grid.cell_size.min_element();
+        } = &mut self.imported_objects;
 
-        for (node, shape, mat) in izip!(object_nodes, shapes, materials)
+        for (node, shape, mat) in izip!(scene_nodes, shapes, materials)
         {
             ui.collapsing(&shape.raw_mesh.name, |ui| {
-                pose_ui(node, speed, ui);
+                pose_ui(node, 0.01, ui);
                 material_ui(mat, ui);
             });
         }
+    }
+
+    pub fn import_mesh(&mut self, scene: &mut SceneNode3d, path: impl AsRef<Path>, material: ElectricMaterial2) -> Result<(), Vec<ObjectError>> {
+        self.imported_objects.materials.push(material);
+        self.imported_objects.extend_from_path(path, scene)
     }
 }
 
@@ -170,7 +158,6 @@ fn pose_ui(node: &mut SceneNode3d, drag_speed: f32, ui: &mut egui::Ui) {
             changed |= ui.add(egui::DragValue::new(&mut pos.z).speed(drag_speed)).changed();
         });
         if changed {
-            println!("{}", pos);
             node.set_position(pos);
         }
     });
