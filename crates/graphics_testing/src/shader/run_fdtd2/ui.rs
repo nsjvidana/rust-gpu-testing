@@ -1,14 +1,14 @@
 use crate::error::ObjectError;
 use crate::prelude::GpuResult;
-use crate::shader::run_fdtd2::{ElectricMaterial2, FdtdData2, FdtdGrid2};
+use crate::shader::run_fdtd2::{ElectricMaterial2, FdtdData2, FdtdGrid2, GaussianPulse2};
 use crate::shader::ImportedObjects;
+use crate::util::draw_bb;
+use glam::USizeVec3;
 use itertools::izip;
 use kiss3d::egui;
 use kiss3d::prelude::*;
-use std::path::{Path, PathBuf};
-use glam::USizeVec3;
 use shader_crate::flat_idx_to_vector;
-use crate::util::draw_bb;
+use std::path::{Path, PathBuf};
 
 pub struct TestbedWindow2 {
     pub window: Window,
@@ -57,7 +57,7 @@ impl TestbedWindow2 {
         data: &mut FdtdData2,
         mut callback: impl AsyncFnMut(&mut Window, &mut FdtdData2) -> GpuResult<()>
     ) -> GpuResult<()> {
-        self.compute_grid_bb();
+        self.update_grid_bb();
         self.update_cell_positions(&data.grid);
 
         while self.window.render_3d(&mut self.scene, &mut self.camera).await {
@@ -115,7 +115,7 @@ impl TestbedWindow2 {
             .collect();
     }
 
-    pub fn compute_grid_bb(&mut self) {
+    pub fn update_grid_bb(&mut self) {
         let ImportedObjects {
             scene_nodes,
             shapes,
@@ -131,6 +131,8 @@ impl TestbedWindow2 {
             min = min.min(new_min);
             max = max.max(new_max);
         }
+        min.z = self.simulation_control_ui.grid_z_level;
+        max.z = self.simulation_control_ui.grid_z_level;
         self.grid_bb = [min, max];
     }
 
@@ -143,6 +145,32 @@ impl TestbedWindow2 {
             egui::Window::new("Simulation Control")
                 .show(ctx, |ui| self.simulation_control_ui.ui(ui));
         });
+    }
+
+    /// Updates parameters of the simulation with the info typed into the egui UIs.
+    pub fn update_simulation_data(&self, data: &mut FdtdData2) {
+        data.materials.truncate(1);
+        data.prepare_materials();
+
+        let SimulationControlUi2 {
+            source_max_frequency,
+            ..
+        } = &self.simulation_control_ui;
+        let pulse = GaussianPulse2::from_max_frequency(*source_max_frequency, 1.);
+        data.set_source(pulse, 10);
+
+        // TODO: let user edit these hard-coded stability values
+        data.min_wavelength(*source_max_frequency, 20)
+            .cfl_condition(3.);
+
+        let [min, max] = self.grid_bb;
+        let aabb_dimensions = max - min;
+        data.grid.n_cells = (aabb_dimensions.xy() / data.grid.cell_size).ceil().as_uvec2();
+        data.update_cells();
+
+        // TODO: use rapier3d::parry::shape::Voxels to do this.
+        //       scirs2-ndimage crate can help with implementing dielectric smoothing
+        todo!("update grid cells with objects")
     }
 }
 

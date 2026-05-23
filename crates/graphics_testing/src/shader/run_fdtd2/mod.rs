@@ -126,6 +126,10 @@ impl FdtdData2 {
         self
     }
 
+    pub fn update_cells(&mut self) {
+        self.grid.cells.resize(self.grid.n_cells.element_product() as usize, GridCell2::default());
+    }
+
     pub fn create_gpu(&mut self, steps_per_submission: usize, backend: &GpuBackend) -> GpuResult<GpuFdtd2> {
         let n_cells3 = UVec3::from((self.grid.n_cells, 1));
         self.prepare_materials();
