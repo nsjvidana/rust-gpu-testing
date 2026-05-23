@@ -12,6 +12,7 @@ pub mod run_fdtd2;
 pub struct ImportedObjects<Material: Default> {
     pub shapes: Vec<LoadedShape>,
     pub materials: Vec<Material>,
+    // TODO: remove this
     pub scene_nodes: Vec<SceneNode3d>,
 }
 
