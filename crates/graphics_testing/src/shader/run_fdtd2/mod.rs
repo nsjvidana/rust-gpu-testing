@@ -25,33 +25,16 @@ struct GpuKernels2 {
 pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
     let gpu_kernels = GpuKernels2::from_backend(backend)?;
     let mut data = FdtdData2::new();
+    let runner = None;
 
-    let pulse_freq = 1e6;
-    let pulse_amplitude = 1.;
-    let pulse = GaussianPulse2::from_max_frequency(pulse_freq, pulse_amplitude);
-
-    data.min_wavelength(pulse_freq, 20)
-        .cfl_condition(3.);
-    data.grid.n_cells = UVec2::new(30, 30);
-    data.grid.cells.resize(data.grid.n_cells.element_product() as usize, GridCell2::default());
-    data.set_source(pulse, 10);
-
-    println!("dt: {:?}", data.dt);
-    println!("cell_size: {:?}", data.grid.cell_size);
-    let mut runner = data.create_gpu(1, backend)?;
-
-    // Set up window
-    let mut window = TestbedWindow2::new("FDTD 2D", 0.).await;
     // Main render loop
+    let mut window = TestbedWindow2::new("FDTD 2D", 0.).await;
     window.render_loop(&mut data, async |window, data, sim| {
-        if sim.just_started {
-
-        }
-        if window.get_key(Key::T) == Action::Press {
-            backend.synchronize()?;
-            runner.cells.read(backend, &mut data.grid.cells).await?;
-            runner.submit_step(&gpu_kernels, backend)?;
-        }
+        // if window.get_key(Key::T) == Action::Press {
+        //     backend.synchronize()?;
+        //     runner.cells.read(backend, &mut data.grid.cells).await?;
+        //     runner.submit_step(&gpu_kernels, backend)?;
+        // }
         Ok(())
     }).await
 }
