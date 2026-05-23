@@ -12,6 +12,7 @@ pub struct TestbedWindow2 {
     pub scene: SceneNode3d,
     pub camera: OrbitCamera3d,
 
+    pub simulation_control_ui: SimulationControlUi2,
     pub import_ui: ImportUi2,
     pub object_explorer_ui: ObjectExplorerUi,
 
@@ -37,6 +38,7 @@ impl TestbedWindow2 {
 
             import_ui: ImportUi2::default(),
             object_explorer_ui: ObjectExplorerUi::default(),
+            simulation_control_ui: SimulationControlUi2::default(),
 
             max_en_value: 0.,
             en_color: RED,
@@ -103,7 +105,38 @@ impl TestbedWindow2 {
             egui::Window::new("Import Mesh")
                 .show(ctx, |ui| self.import_ui.ui(ui));
             egui::Window::new("Object Explorer")
-                .show(ctx, |ui| self.object_explorer_ui.explorer_ui(ui));
+                .show(ctx, |ui| self.object_explorer_ui.ui(ui));
+            egui::Window::new("Simulation Control")
+                .show(ctx, |ui| self.simulation_control_ui.ui(ui));
+        });
+    }
+}
+
+#[derive(Default)]
+pub struct SimulationControlUi2 {
+    pub source_max_frequency: f32,
+    pub started: bool,
+    pub paused: bool,
+    pub needs_reset: bool,
+}
+
+impl SimulationControlUi2 {
+    pub fn ui(&mut self, ui: &mut egui::Ui) {
+        ui.label("Gaussian Pulse Max Frequency:");
+        ui.add(
+            egui::DragValue::new(&mut self.source_max_frequency).speed(0.5).range(1e-20..=f32::MAX)
+        );
+
+        ui.horizontal(|ui| {
+            self.started |= ui.selectable_label(self.started, "Start").clicked();
+            if ui.selectable_label(self.paused, "Pause").clicked() {
+                self.paused = !self.paused && self.started;
+            }
+            if ui.button("Reset").clicked() {
+                self.started = false;
+                self.paused = false;
+                self.needs_reset = true;
+            }
         });
     }
 }
@@ -145,7 +178,7 @@ pub struct ObjectExplorerUi {
 }
 
 impl ObjectExplorerUi {
-    pub fn explorer_ui(&mut self, ui: &mut egui::Ui) {
+    pub fn ui(&mut self, ui: &mut egui::Ui) {
         let ImportedObjects {
             scene_nodes,
             shapes,
