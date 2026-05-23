@@ -100,16 +100,17 @@ impl TestbedWindow2 {
         }
 
         draw_bb(&mut self.window, self.grid_bb, WHITE, 2., false);
-        // todo!()
     }
 
     pub fn update_cell_positions(&mut self, grid: &FdtdGrid2) {
         let cell_size3 = Vec3::from((grid.cell_size, 0.));
         let n_cells3 = USizeVec3::from((grid.n_cells.as_usizevec2(), 1));
+        let offset = self.grid_bb[0] +
+            Vec3::new(0., 0., self.simulation_control_ui.grid_z_level);
         self.cell_positions = (0..grid.cells.len())
             .map(|i| {
                 let i3 = flat_idx_to_vector!(i, n_cells3, USizeVec3);
-                i3.as_vec3() * cell_size3 + self.grid_bb[0]
+                i3.as_vec3() * cell_size3 + offset
             })
             .collect();
     }
@@ -148,8 +149,10 @@ impl TestbedWindow2 {
 #[derive(Default)]
 pub struct SimulationControlUi2 {
     pub source_max_frequency: f32,
+    pub grid_z_level: f32,
     pub started: bool,
     pub paused: bool,
+    pub just_started: bool,
     pub needs_reset: bool,
 }
 
@@ -160,8 +163,14 @@ impl SimulationControlUi2 {
             egui::DragValue::new(&mut self.source_max_frequency).speed(0.5).range(1e-20..=f32::MAX)
         );
 
+        ui.label("Grid Z Level:");
+        ui.add(egui::DragValue::new(&mut self.grid_z_level).speed(0.01));
+
         ui.horizontal(|ui| {
+            let prev_started = self.started;
             self.started |= ui.selectable_label(self.started, "Start").clicked();
+            self.just_started = !prev_started && self.started;
+
             if ui.selectable_label(self.paused, "Pause").clicked() {
                 self.paused = !self.paused && self.started;
             }
