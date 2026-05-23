@@ -1,12 +1,13 @@
+use std::hash::Hash;
 use crate::prelude::GpuResult;
-use crate::shader::run_fdtd2::{material_ui, ElectricMaterial2, FdtdData2};
+use crate::shader::run_fdtd2::{ElectricMaterial2, FdtdData2};
+use crate::shader::ImportedObjects;
+use itertools::izip;
 use kiss3d::egui;
 use kiss3d::prelude::*;
 use kiss3d::procedural::{IndexBuffer, RenderMesh};
-use rapier3d::prelude::Shape;
 use rapier3d_meshloader::LoadedShape;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 pub struct TestbedWindow2 {
     pub window: Window,
@@ -15,6 +16,7 @@ pub struct TestbedWindow2 {
     pub object_nodes: Vec<SceneNode3d>,
 
     pub import_ui: ImportUi2,
+    pub object_explorer_ui: ObjectExplorerUi,
 
     pub max_en_value: f32,
     pub en_color: Color,
@@ -37,6 +39,7 @@ impl TestbedWindow2 {
             object_nodes: vec![],
 
             import_ui: ImportUi2::default(),
+            object_explorer_ui: ObjectExplorerUi::default(),
 
             max_en_value: 0.,
             en_color: RED,
@@ -81,7 +84,7 @@ impl TestbedWindow2 {
             }
             self.render_simulation(&data);
 
-            self.egui_windows();
+            self.egui_windows(data);
         }
         Ok(())
     }
@@ -93,10 +96,12 @@ impl TestbedWindow2 {
         todo!()
     }
 
-    pub fn egui_windows(&mut self) {
+    pub fn egui_windows(&mut self, data: &mut FdtdData2) {
         self.window.draw_ui(|ctx| {
             egui::Window::new("Import Mesh")
                 .show(ctx, |ui| self.import_ui.ui(ui));
+            egui::Window::new("Object Explorer")
+                .show(ctx, |ui| self.object_explorer_ui.explorer_ui(data, &mut self.object_nodes, ui));
         });
     }
 }
@@ -130,4 +135,62 @@ impl ImportUi2 {
 
         self.import_clicked = ui.button("Import Mesh").clicked();
     }
+}
+
+#[derive(Default)]
+pub struct ObjectExplorerUi;
+
+impl ObjectExplorerUi {
+    pub fn explorer_ui(&mut self, data: &mut FdtdData2, object_nodes: &mut Vec<SceneNode3d>, ui: &mut egui::Ui) {
+        let ImportedObjects {
+            shapes,
+            materials,
+            ..
+        } = &mut data.imported_objects;
+        let speed = data.grid.cell_size.min_element();
+
+        for (node, shape, mat) in izip!(object_nodes, shapes, materials)
+        {
+            ui.collapsing(&shape.raw_mesh.name, |ui| {
+                pose_ui(node, speed, ui);
+                material_ui(mat, ui);
+            });
+        }
+    }
+}
+
+fn pose_ui(node: &mut SceneNode3d, drag_speed: f32, ui: &mut egui::Ui) {
+    ui.collapsing("Transform", |ui| {
+        let mut pos = node.position();
+        let mut changed = false;
+        ui.label("Translation:");
+        ui.indent(0, |ui| {
+            changed |= ui.add(egui::DragValue::new(&mut pos.x).speed(drag_speed)).changed();
+            changed |= ui.add(egui::DragValue::new(&mut pos.y).speed(drag_speed)).changed();
+            changed |= ui.add(egui::DragValue::new(&mut pos.z).speed(drag_speed)).changed();
+        });
+        if changed {
+            println!("{}", pos);
+            node.set_position(pos);
+        }
+    });
+}
+
+fn material_ui(material: &mut ElectricMaterial2, ui: &mut egui::Ui) {
+    ui.collapsing("Material Properties", |ui| {
+        ui.label("Relative Permeability (Tensor Diagonal):");
+        ui.indent("mu_r_indent", |ui| ui.horizontal(|ui| {
+            ui.add(egui::DragValue::new(&mut material.mu_r.x).speed(0.01).range(0.0..=f32::MAX));
+            ui.add(egui::DragValue::new(&mut material.mu_r.y).speed(0.01).range(0.0..=f32::MAX));
+        }));
+
+        ui.label("Relative Permittivity:");
+        ui.indent("eps_r_indent", |ui|
+            ui.add(egui::DragValue::new(&mut material.eps_r_z).speed(0.01).range(0.0..=f32::MAX))
+        );
+
+        if ui.button("Reset").clicked() {
+            *material = ElectricMaterial2::FREE_SPACE;
+        }
+    });
 }
