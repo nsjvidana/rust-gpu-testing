@@ -57,7 +57,7 @@ impl TestbedWindow2 {
     pub async fn render_loop(
         &mut self,
         data: &mut FdtdData2,
-        mut callback: impl AsyncFnMut(&mut Window, &mut FdtdData2, &SimulationControlUi2) -> GpuResult<()>
+        mut callback: impl AsyncFnMut(&mut Window, &mut FdtdData2, &mut SimulationControlUi2) -> GpuResult<()>
     ) -> GpuResult<()> {
         self.update_grid_bb();
         self.update_cell_positions(&data.grid);
@@ -66,7 +66,7 @@ impl TestbedWindow2 {
             if self.simulation_control_ui.just_started {
                 self.update_simulation_data(data);
             }
-            callback(&mut self.window, data, &self.simulation_control_ui).await?;
+            callback(&mut self.window, data, &mut self.simulation_control_ui).await?;
 
             if self.import_ui.import_clicked {
                 self.object_explorer_ui.import_mesh(&mut self.scene, &self.import_ui.file_path, self.import_ui.material)
@@ -253,6 +253,13 @@ impl SimulationControlUi2 {
                 self.needs_reset = true;
             }
         });
+    }
+
+    pub fn reset_buttons(&mut self) {
+        self.started = false;
+        self.paused = false;
+        self.just_started = false;
+        self.needs_reset = false;
     }
 }
 

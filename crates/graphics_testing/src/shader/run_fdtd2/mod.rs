@@ -25,16 +25,34 @@ struct GpuKernels2 {
 pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
     let gpu_kernels = GpuKernels2::from_backend(backend)?;
     let mut data = FdtdData2::new();
-    let runner = None;
+    let mut runner = None;
 
     // Main render loop
     let mut window = TestbedWindow2::new("FDTD 2D", 0.).await;
     window.render_loop(&mut data, async |window, data, sim| {
-        // if window.get_key(Key::T) == Action::Press {
-        //     backend.synchronize()?;
-        //     runner.cells.read(backend, &mut data.grid.cells).await?;
-        //     runner.submit_step(&gpu_kernels, backend)?;
-        // }
+        if sim.just_started {
+            if data.grid.cells.len() == 0 {
+                sim.reset_buttons();
+                runner = None;
+            }
+            else {
+                runner = Some(data.create_gpu(1, backend)?);
+            }
+        }
+        if sim.needs_reset {
+            for c in data.grid.cells.iter_mut() {
+                *c = GridCell2::default()
+            }
+            sim.reset_buttons();
+        }
+        if let Some(runner) = &mut runner {
+            if sim.started {
+                backend.synchronize()?;
+                runner.cells.read(backend, &mut data.grid.cells).await?;
+                runner.submit_step(&gpu_kernels, backend)?;
+            }
+        }
+
         Ok(())
     }).await
 }
