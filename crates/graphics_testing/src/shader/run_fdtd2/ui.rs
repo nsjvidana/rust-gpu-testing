@@ -25,6 +25,7 @@ pub struct TestbedWindow2 {
     pub en_color: Color,
     /// The `[min, max]` of the FDTD grid's bounds. Includes the Z-level of the 2D grid
     pub grid_bb: [Vec3; 2],
+    pub grid_bb_sim: [Vec3; 2],
     pub cell_positions: Vec<Vec3>,
     pub alpha_threshold: f32,
 }
@@ -50,6 +51,7 @@ impl TestbedWindow2 {
             max_en_value: 0.,
             en_color: RED,
             grid_bb: [Vec3::ZERO; 2],
+            grid_bb_sim: [Vec3::ZERO; 2],
             cell_positions: vec![],
             alpha_threshold,
         }
@@ -61,11 +63,11 @@ impl TestbedWindow2 {
         mut callback: impl AsyncFnMut(&mut Window, &mut FdtdData2, &mut SimulationControlUi2) -> GpuResult<()>
     ) -> GpuResult<()> {
         self.update_grid_bb();
-        self.update_cell_positions(&data.grid);
 
         while self.window.render_3d(&mut self.scene, &mut self.camera).await {
             if self.simulation_control_ui.just_started {
                 self.update_simulation_data(data);
+                self.update_cell_positions(&data.grid);
             }
             callback(&mut self.window, data, &mut self.simulation_control_ui).await?;
 
@@ -109,12 +111,16 @@ impl TestbedWindow2 {
         }
 
         draw_bb(&mut self.window, self.grid_bb, WHITE, 2., false);
+
+        if self.simulation_control_ui.started {
+            draw_bb(&mut self.window, self.grid_bb_sim, ORANGE, 2., false);
+        }
     }
 
     pub fn update_cell_positions(&mut self, grid: &FdtdGrid2) {
         let cell_size3 = Vec3::from((grid.cell_size, 0.));
         let n_cells3 = USizeVec3::from((grid.n_cells.as_usizevec2(), 1));
-        let offset = self.grid_bb[0] +
+        let offset = self.grid_bb_sim[0] +
             Vec3::new(0., 0., self.simulation_control_ui.grid_z_level);
         self.cell_positions = (0..grid.cells.len())
             .map(|i| {
@@ -140,9 +146,18 @@ impl TestbedWindow2 {
             min = min.min(new_min);
             max = max.max(new_max);
         }
+        if min == Vec3::MAX {
+            min = Vec3::ZERO
+        }
         min.z = self.simulation_control_ui.grid_z_level;
         max.z = self.simulation_control_ui.grid_z_level;
         self.grid_bb = [min, max];
+
+        let z_far = (max - min).length_squared().max(1000.);
+        let eye = self.camera.eye();
+        let at = self.camera.at();
+        self.camera = OrbitCamera3d::new_with_frustum(core::f32::consts::PI / 4.0, 1e-9, z_far, eye, at);
+        self.camera.set_up_axis_dir(Vec3::Z);
     }
 
     pub fn egui_windows(&mut self) {
@@ -164,9 +179,10 @@ impl TestbedWindow2 {
     }
 
     /// Updates parameters of the simulation with the info typed into the egui UIs.
-    pub fn update_simulation_data(&self, data: &mut FdtdData2) {
+    pub fn update_simulation_data(&mut self, data: &mut FdtdData2) {
         let SimulationControlUi2 {
             source_max_frequency,
+            stability_values2: stability,
             ..
         } = &self.simulation_control_ui;
         let ImportedObjects {
@@ -184,14 +200,21 @@ impl TestbedWindow2 {
         data.set_source(pulse, 10);
 
         // TODO: let user edit these hard-coded stability values
-        data.min_wavelength(*source_max_frequency, 20)
-            .cfl_condition(3.);
+        data.min_wavelength(*source_max_frequency, stability.cells_per_wavelength)
+            .cfl_condition(stability.dt_multiplier);
 
         // Update grid dimensions & grid cells to encompass all objects
-        let [min, max] = self.grid_bb;
-        let aabb_dimensions = max - min;
-        data.grid.n_cells = (aabb_dimensions.xy() / data.grid.cell_size).ceil().as_uvec2();
+        let spacer_region_offset = Vec3::from(
+            (stability.spacer_region_width as f32 * data.grid.cell_size, 0.)
+        );
+        self.grid_bb_sim = [
+            self.grid_bb[0] - spacer_region_offset,
+            self.grid_bb[1] + spacer_region_offset
+        ];
+        let bb_dimensions_sim = self.grid_bb_sim[1] - self.grid_bb_sim[0];
+        data.grid.n_cells = (bb_dimensions_sim.xy() / data.grid.cell_size).ceil().as_uvec2();
             data.update_cells();
+        println!("{:?}", self.grid_bb);
         let n_cellsi = data.grid.n_cells.as_ivec2();
 
         // Discretize objects for grid cells
@@ -209,7 +232,6 @@ impl TestbedWindow2 {
         };
         let vox_shape = parry3d::shape::Cuboid::new(voxels.voxel_size() / 2.);
         for (i, vox) in voxels.voxels().enumerate() {
-            println!("{}", vox.grid_coords);
             let vox_pose = parrymath::Pose::from_translation(vox.center);
             for (obj, node) in izip!(obj_shapes, obj_nodes) {
                 let obj_translation = parrymath::Vector::from_array((node.position() - self.grid_bb[0]).to_array());
@@ -230,6 +252,8 @@ impl TestbedWindow2 {
 pub struct SimulationControlUi2 {
     pub source_max_frequency: f32,
     pub grid_z_level: f32,
+    pub stability_values2: StabilityValues2,
+
     pub started: bool,
     pub paused: bool,
     pub just_started: bool,
@@ -247,6 +271,24 @@ impl SimulationControlUi2 {
 
         ui.label("Grid Z Level:");
         changed |= egui::DragValue::new(&mut self.grid_z_level).speed(0.01).ui(ui).changed();
+
+        ui.collapsing("Stability Parameters", |ui| {
+            let StabilityValues2 {
+                cells_per_wavelength,
+                dt_multiplier,
+                spacer_region_width,
+            } = &mut self.stability_values2;
+            ui.label("Cells per Wavelength:");
+            changed |= egui::DragValue::new(cells_per_wavelength).speed(1).ui(ui).changed();
+            ui.label("Dt Multiplier:");
+            changed |= egui::DragValue::new(dt_multiplier)
+                .range((1. + f32::MIN_POSITIVE)..=f32::MAX)
+                .speed(0.01)
+                .ui(ui)
+                .changed();
+            ui.label("Spacer Region Width:");
+            changed |= egui::DragValue::new(spacer_region_width).speed(1).ui(ui).changed();
+        });
 
         ui.horizontal(|ui| {
             let prev_started = self.started;
@@ -270,6 +312,22 @@ impl SimulationControlUi2 {
         self.paused = false;
         self.just_started = false;
         self.needs_reset = false;
+    }
+}
+
+pub struct StabilityValues2 {
+    pub cells_per_wavelength: usize,
+    pub dt_multiplier: f32,
+    pub spacer_region_width: usize,
+}
+
+impl Default for StabilityValues2 {
+    fn default() -> Self {
+        Self {
+            cells_per_wavelength: 10,
+            dt_multiplier: 2.,
+            spacer_region_width: 10,
+        }
     }
 }
 

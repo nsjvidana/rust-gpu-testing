@@ -46,7 +46,7 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
             sim.reset_buttons();
         }
         if let Some(runner) = &mut runner {
-            if sim.started {
+            if sim.started && !sim.paused {
                 backend.synchronize()?;
                 runner.cells.read(backend, &mut data.grid.cells).await?;
                 runner.submit_step(&gpu_kernels, backend)?;
