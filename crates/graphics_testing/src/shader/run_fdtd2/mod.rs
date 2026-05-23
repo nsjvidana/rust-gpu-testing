@@ -58,7 +58,6 @@ pub struct FdtdData2 {
     pub grid: FdtdGrid2,
     pub materials: Vec<ElectricMaterial2>,
     pub source: GaussianPulse2,
-    pub imported_objects: ImportedObjects<ElectricMaterial2>,
 }
 
 impl FdtdData2 {
@@ -68,7 +67,6 @@ impl FdtdData2 {
             grid: FdtdGrid2::new(),
             materials: vec![],
             source: GaussianPulse2::default(),
-            imported_objects: ImportedObjects::new(),
         }
     }
 
@@ -115,9 +113,6 @@ impl FdtdData2 {
     pub fn prepare_materials(&mut self) -> &mut Self {
         if self.materials.is_empty() {
             self.materials.push(ElectricMaterial2::FREE_SPACE);
-        }
-        for mat in self.imported_objects.materials.iter().cloned() {
-            self.materials.push(mat);
         }
         self
     }
