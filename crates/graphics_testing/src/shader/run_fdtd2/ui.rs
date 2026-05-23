@@ -10,6 +10,7 @@ use kiss3d::egui;
 use kiss3d::prelude::*;
 use shader_crate::flat_idx_to_vector;
 use std::path::{Path, PathBuf};
+use kiss3d::egui::Widget;
 
 pub struct TestbedWindow2 {
     pub window: Window,
@@ -130,7 +131,7 @@ impl TestbedWindow2 {
             ..
         } = &self.object_explorer_ui.imported_objects;
 
-        let mut min = Vec3::ZERO;
+        let mut min = Vec3::MAX;
         let mut max = Vec3::ZERO;
         for (node, shape) in izip!(scene_nodes, shapes) {
             let aabb = shape.shape.compute_local_aabb();
@@ -145,15 +146,21 @@ impl TestbedWindow2 {
     }
 
     pub fn egui_windows(&mut self) {
+        let mut object_changed = false;
+        let mut sim_changed = false;
         self.window.draw_ui(|ctx| {
             egui::Window::new("Import Mesh")
                 .show(ctx, |ui| self.import_ui.ui(ui));
-            // TODO: detect change in this UI
+
             egui::Window::new("Object Explorer")
-                .show(ctx, |ui| self.object_explorer_ui.ui(ui));
+                .show(ctx, |ui| object_changed = self.object_explorer_ui.ui(ui));
+
             egui::Window::new("Simulation Control")
-                .show(ctx, |ui| self.simulation_control_ui.ui(ui));
+                .show(ctx, |ui| sim_changed = self.simulation_control_ui.ui(ui));
         });
+        if object_changed || sim_changed {
+            self.update_grid_bb();
+        }
     }
 
     /// Updates parameters of the simulation with the info typed into the egui UIs.
@@ -230,14 +237,16 @@ pub struct SimulationControlUi2 {
 }
 
 impl SimulationControlUi2 {
-    pub fn ui(&mut self, ui: &mut egui::Ui) {
+    /// Returns true if simulation parameters have been changed
+    pub fn ui(&mut self, ui: &mut egui::Ui) -> bool {
+        let mut changed = false;
+
         ui.label("Gaussian Pulse Max Frequency:");
-        ui.add(
-            egui::DragValue::new(&mut self.source_max_frequency).speed(0.5).range(1e-20..=f32::MAX)
-        );
+        changed |= egui::DragValue::new(&mut self.source_max_frequency).speed(0.5).range(1e-20..=f32::MAX).ui(ui)
+            .changed();
 
         ui.label("Grid Z Level:");
-        ui.add(egui::DragValue::new(&mut self.grid_z_level).speed(0.01));
+        changed |= egui::DragValue::new(&mut self.grid_z_level).speed(0.01).ui(ui).changed();
 
         ui.horizontal(|ui| {
             let prev_started = self.started;
@@ -253,6 +262,7 @@ impl SimulationControlUi2 {
                 self.needs_reset = true;
             }
         });
+        changed
     }
 
     pub fn reset_buttons(&mut self) {
@@ -300,7 +310,8 @@ pub struct ObjectExplorerUi {
 }
 
 impl ObjectExplorerUi {
-    pub fn ui(&mut self, ui: &mut egui::Ui) {
+    /// Returns if an object has been changed in some way
+    pub fn ui(&mut self, ui: &mut egui::Ui) -> bool {
         let ImportedObjects {
             scene_nodes,
             shapes,
@@ -308,13 +319,24 @@ impl ObjectExplorerUi {
             ..
         } = &mut self.imported_objects;
 
+        let mut objects_were_changed = false;
         for (node, shape, mat) in izip!(scene_nodes, shapes, materials)
         {
+            let mut pose  = node.local_transformation();
+            let mut pose_changed = false;
+            let mut mat_changed = false;
             ui.collapsing(&shape.raw_mesh.name, |ui| {
-                pose_ui(node, 0.01, ui);
-                material_ui(mat, ui);
+                pose_changed = pose_ui(&mut pose, 0.01, ui);
+                mat_changed = material_ui(mat, ui);
             });
+            if pose_changed {
+                node.set_position(pose.translation);
+                node.set_rotation(pose.rotation);
+            }
+            objects_were_changed |= pose_changed || mat_changed;
         }
+
+        objects_were_changed
     }
 
     pub fn import_mesh(&mut self, scene: &mut SceneNode3d, path: impl AsRef<Path>, material: ElectricMaterial2) -> Result<(), Vec<ObjectError>> {
@@ -323,37 +345,41 @@ impl ObjectExplorerUi {
     }
 }
 
-fn pose_ui(node: &mut SceneNode3d, drag_speed: f32, ui: &mut egui::Ui) {
+fn pose_ui(pose: &mut Pose3, drag_speed: f32, ui: &mut egui::Ui) -> bool {
+    let mut changed = false;
     ui.collapsing("Transform", |ui| {
-        let mut pos = node.position();
-        let mut changed = false;
+        let pos = &mut pose.translation;
         ui.label("Translation:");
         ui.indent(0, |ui| {
             changed |= ui.add(egui::DragValue::new(&mut pos.x).speed(drag_speed)).changed();
             changed |= ui.add(egui::DragValue::new(&mut pos.y).speed(drag_speed)).changed();
             changed |= ui.add(egui::DragValue::new(&mut pos.z).speed(drag_speed)).changed();
         });
-        if changed {
-            node.set_position(pos);
-        }
     });
+    changed
 }
 
-fn material_ui(material: &mut ElectricMaterial2, ui: &mut egui::Ui) {
+fn material_ui(material: &mut ElectricMaterial2, ui: &mut egui::Ui) -> bool {
+    let mut changed = false;
     ui.collapsing("Material Properties", |ui| {
         ui.label("Relative Permeability (Tensor Diagonal):");
         ui.indent("mu_r_indent", |ui| ui.horizontal(|ui| {
-            ui.add(egui::DragValue::new(&mut material.mu_r.x).speed(0.01).range(0.0..=f32::MAX));
-            ui.add(egui::DragValue::new(&mut material.mu_r.y).speed(0.01).range(0.0..=f32::MAX));
+            changed |= ui.add(egui::DragValue::new(&mut material.mu_r.x).speed(0.01).range(0.0..=f32::MAX))
+                .clicked();
+            changed |= ui.add(egui::DragValue::new(&mut material.mu_r.y).speed(0.01).range(0.0..=f32::MAX))
+                .clicked();
         }));
 
         ui.label("Relative Permittivity:");
         ui.indent("eps_r_indent", |ui|
-            ui.add(egui::DragValue::new(&mut material.eps_r_z).speed(0.01).range(0.0..=f32::MAX))
+            changed |= ui.add(egui::DragValue::new(&mut material.eps_r_z).speed(0.01).range(0.0..=f32::MAX))
+                .clicked()
         );
 
         if ui.button("Reset").clicked() {
             *material = ElectricMaterial2::FREE_SPACE;
+            changed = true;
         }
     });
+    changed
 }
