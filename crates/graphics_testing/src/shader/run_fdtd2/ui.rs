@@ -278,17 +278,18 @@ impl SimulationControlUi2 {
                 cells_per_wavelength,
                 dt_multiplier,
                 spacer_region_width,
+                material_smoothing_resolution,
             } = &mut self.stability_values2;
             ui.label("Cells per Wavelength:");
             changed |= egui::DragValue::new(cells_per_wavelength).speed(1).ui(ui).changed();
             ui.label("Dt Multiplier:");
             changed |= egui::DragValue::new(dt_multiplier)
-                .range((1. + f32::MIN_POSITIVE)..=f32::MAX)
-                .speed(0.01)
-                .ui(ui)
-                .changed();
+                .range((1. + f32::MIN_POSITIVE)..=f32::MAX).speed(0.01).ui(ui).changed();
             ui.label("Spacer Region Width:");
             changed |= egui::DragValue::new(spacer_region_width).speed(1).ui(ui).changed();
+            ui.label("Material Smoothing Resolution:");
+            changed |= egui::DragValue::new(material_smoothing_resolution)
+                .range(1..=u32::MAX).speed(1).ui(ui).changed();
         });
 
         ui.horizontal(|ui| {
@@ -320,6 +321,7 @@ pub struct StabilityValues2 {
     pub cells_per_wavelength: usize,
     pub dt_multiplier: f32,
     pub spacer_region_width: usize,
+    pub material_smoothing_resolution: u32,
 }
 
 impl Default for StabilityValues2 {
@@ -328,6 +330,7 @@ impl Default for StabilityValues2 {
             cells_per_wavelength: 10,
             dt_multiplier: 2.,
             spacer_region_width: 10,
+            material_smoothing_resolution: 1,
         }
     }
 }
