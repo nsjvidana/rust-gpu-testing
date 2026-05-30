@@ -1,20 +1,15 @@
 mod ui;
 
-use crate::error::ObjectError;
 use crate::prelude::GpuResult;
-use crate::shader::ImportedObjects;
-use crate::util::{draw_bb, CreateGpuBuffer, CreateGpuBufferReadable, GpuBufferReadable};
-use glam::{USizeVec3, UVec2, UVec3, Vec2};
-use itertools::izip;
+use crate::shader::run_fdtd2::ui::TestbedWindow2;
+use crate::util::{CreateGpuBuffer, CreateGpuBufferReadable, GpuBufferReadable};
 use khal::backend::{Backend, DispatchGrid, Encoder, GpuBackend, GpuBuffer};
 use khal::Shader;
-use kiss3d::egui;
 use kiss3d::egui::Widget;
+use kiss3d::glamx::*;
 use kiss3d::prelude::*;
 use shader_crate::fdtd2::{Fdtd2, GpuSource2, GridCell2, GridInfo2, MaterialConstants2, SoftSource2};
-use shader_crate::{flat_idx_to_vector, vector_to_flat_idx};
-use std::path::{Path, PathBuf};
-use crate::shader::run_fdtd2::ui::TestbedWindow2;
+use shader_crate::vector_to_flat_idx;
 
 #[derive(Shader)]
 struct GpuKernels2 {

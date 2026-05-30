@@ -1,9 +1,10 @@
 use crate::prelude::*;
-use glam::{Mat3, Vec3, Vec3Swizzles};
 use khal::backend::{Backend, Buffer, DeviceValue, Encoder, GpuBackend, GpuBuffer, GpuEncoder};
 use khal::re_exports::bytemuck::{AnyBitPattern, NoUninit};
 use khal::BufferUsages;
 use kiss3d::prelude::{Color, Polyline3d, Window};
+
+pub use self::visualization::*;
 
 pub struct GpuBufferReadable<T: DeviceValue + NoUninit + AnyBitPattern> {
     pub buffer: GpuBuffer<T>,
@@ -93,41 +94,47 @@ impl<T: DeviceValue + NoUninit + AnyBitPattern> CreateGpuBufferReadable<T> for T
     }
 }
 
-/// Draws a bounding box `bb` where `bb = [min, max]` of the bb's bounds.
-pub fn draw_bb(window: &mut Window, bb: [Vec3; 2], color: Color, width: f32, perspective: bool) {
-    let [dx, dy, dz] = Mat3::from_diagonal(bb[1] - bb[0]).to_cols_array_2d()
-        .map(|v| Vec3::from(v));
-    let btm = [bb[0], bb[1] - dz];
-    let top = [bb[0] + dz, bb[1]];
-    
-    window.draw_line(btm[0], btm[0] + dx, color, width, perspective);
-    window.draw_line(btm[0], btm[0] + dy, color, width, perspective);
-    window.draw_line(btm[0], btm[0] + dz, color, width, perspective);
-    window.draw_line(btm[1], btm[1] - dx, color, width, perspective);
-    window.draw_line(btm[1], btm[1] - dy, color, width, perspective);
-    window.draw_line(btm[1], btm[1] - dz, color, width, perspective);
-    window.draw_line(top[0], top[0] + dx, color, width, perspective);
-    window.draw_line(top[0], top[0] + dy, color, width, perspective);
-    window.draw_line(top[0], top[0] + dz, color, width, perspective);
-    window.draw_line(top[1], top[1] - dx, color, width, perspective);
-    window.draw_line(top[1], top[1] - dy, color, width, perspective);
-    window.draw_line(top[1], top[1] - dz, color, width, perspective);
-}
+mod visualization {
+    use kiss3d::color::Color;
+    use kiss3d::glamx::*;
+    use kiss3d::prelude::{Polyline3d, Window};
 
-/// Creates a [`kiss3d::prelude::Polyline3d`] that draws an arrow starting at `position`, pointing in
-/// the direction of `direction_length` with a length of the `direction_length` vector.
-pub fn arrow_polyline(position: Vec3, direction_length: Vec3) -> Polyline3d {
-    let u = -direction_length;
-    let mut axis = u.cross(Vec3::X).normalize_or_zero();
-    if axis.length_squared() == 0. {
-        axis = u.cross(Vec3::Y).normalize();
+    /// Draws a bounding box `bb` where `bb = [min, max]` of the bb's bounds.
+    pub fn draw_bb(window: &mut Window, bb: [Vec3; 2], color: Color, width: f32, perspective: bool) {
+        let [dx, dy, dz] = Mat3::from_diagonal(bb[1] - bb[0]).to_cols_array_2d()
+            .map(|v| Vec3::from(v));
+        let btm = [bb[0], bb[1] - dz];
+        let top = [bb[0] + dz, bb[1]];
+
+        window.draw_line(btm[0], btm[0] + dx, color, width, perspective);
+        window.draw_line(btm[0], btm[0] + dy, color, width, perspective);
+        window.draw_line(btm[0], btm[0] + dz, color, width, perspective);
+        window.draw_line(btm[1], btm[1] - dx, color, width, perspective);
+        window.draw_line(btm[1], btm[1] - dy, color, width, perspective);
+        window.draw_line(btm[1], btm[1] - dz, color, width, perspective);
+        window.draw_line(top[0], top[0] + dx, color, width, perspective);
+        window.draw_line(top[0], top[0] + dy, color, width, perspective);
+        window.draw_line(top[0], top[0] + dz, color, width, perspective);
+        window.draw_line(top[1], top[1] - dx, color, width, perspective);
+        window.draw_line(top[1], top[1] - dy, color, width, perspective);
+        window.draw_line(top[1], top[1] - dz, color, width, perspective);
     }
-    let arrow_head = u.rotate_axis(axis, -std::f32::consts::FRAC_PI_4)
-        .normalize() * direction_length.length() / 3.;
 
-    Polyline3d::new(vec![
-        position,
-        position + direction_length,
-        position + direction_length + arrow_head
-    ])
+    /// Creates a [`kiss3d::prelude::Polyline3d`] that draws an arrow starting at `position`, pointing in
+    /// the direction of `direction_length` with a length of the `direction_length` vector.
+    pub fn arrow_polyline(position: Vec3, direction_length: Vec3) -> Polyline3d {
+        let u = -direction_length;
+        let mut axis = u.cross(Vec3::X).normalize_or_zero();
+        if axis.length_squared() == 0. {
+            axis = u.cross(Vec3::Y).normalize();
+        }
+        let arrow_head = u.rotate_axis(axis, -std::f32::consts::FRAC_PI_4)
+            .normalize() * direction_length.length() / 3.;
+
+        Polyline3d::new(vec![
+            position,
+            position + direction_length,
+            position + direction_length + arrow_head
+        ])
+    }
 }

@@ -1,6 +1,6 @@
 #![cfg_attr(target_arch = "spirv", no_std)]
 
-use khal_std::glamx::{USizeVec3, UVec3, Vec2};
+use khal_std::glamx::Vec2;
 use bytemuck::{Pod, Zeroable};
 use khal_std::num_traits::Float;
 
@@ -69,7 +69,7 @@ macro_rules! e_i {
 #[repr(C)]
 pub struct GpuComplexPolar {
     pub r: f32,
-    pub theta: f32,
+    pub theta: f32
 }
 
 impl GpuComplexPolar {

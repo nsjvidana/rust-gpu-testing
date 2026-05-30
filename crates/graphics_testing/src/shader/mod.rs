@@ -3,6 +3,7 @@ use kiss3d::prelude::SceneNode3d;
 use rapier3d::geometry::MeshConverter;
 use rapier3d_meshloader::*;
 use std::path::Path;
+use kiss3d::glamx::Vec3;
 use kiss3d::procedural::{IndexBuffer, RenderMesh};
 pub use rapier3d::parry as parry3d;
 pub use parry3d::math as parrymath;
@@ -52,12 +53,12 @@ impl<Material: Default> ImportedObjects<Material> {
             .map(|o| {
                 scene.add_render_mesh(
                     RenderMesh::new(
-                        o.raw_mesh.vertices.iter().map(|v| glam::Vec3::from_array(*v)).collect(),
-                        Some(o.raw_mesh.normals.iter().map(|v| glam::Vec3::from_array(*v)).collect()),
+                        o.raw_mesh.vertices.iter().map(|v| Vec3::from_array(*v)).collect(),
+                        Some(o.raw_mesh.normals.iter().map(|v| Vec3::from_array(*v)).collect()),
                         None,
                         Some(IndexBuffer::Unified(o.raw_mesh.faces.clone()))
                     ),
-                    glam::Vec3::ONE
+                    Vec3::ONE
                 )
             })
             .collect::<Vec<_>>();

@@ -1,7 +1,6 @@
 use crate::prelude::GpuResult;
 use crate::util::{CreateGpuBuffer, CreateGpuBufferReadable, GpuBufferReadable};
 use egui_plot::{Legend, Line, Plot, PlotPoint, PlotPoints};
-use glam::Vec3;
 use khal::backend::{Backend, Buffer, DispatchGrid, Encoder, GpuBackend, GpuBackendError, GpuBuffer};
 use khal::Shader;
 use kiss3d::camera::OrbitCamera3d;
@@ -13,6 +12,7 @@ use rayon::prelude::*;
 use shader_crate::fdtd1::{Dft1, DftInfo1, Fdtd1, FinishDft1, GpuSource1, GridCell1, GridInfo1, MaterialConstants1, PerfectBoundaryData, PrecomputeDftKernels1};
 use shader_crate::GpuComplexPolar;
 use std::ops::{Range, RangeInclusive};
+use kiss3d::glamx::Vec3;
 
 #[derive(Shader)]
 struct GpuKernels {

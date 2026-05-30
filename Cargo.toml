@@ -13,11 +13,10 @@ edition = "2024"
 unexpected_cfgs = { level = "allow", check-cfg = ['cfg(target_arch, values("spirv"))'] }
 
 [workspace.dependencies]
-kiss3d = { git = "https://github.com/dimforge/kiss3d.git", rev = "1c1739653d7f26241dd064f98f4b263900c5111e", features = ["egui"] }
+kiss3d = { version = "0.42.0", features = ["egui"] }
 egui_plot = { version = "0.35.0" }
 rapier3d-meshloader = { version = "0.13.0", features = ["stl", "collada", "wavefront"] }
 rapier3d = "*"
-glam = { version = "*", features = ["bytemuck"] }
 pollster = "0.4.0"
 bytemuck = { version = "*", features = ["derive"]}
 rand = "0.10.0"
@@ -26,9 +25,9 @@ rfd = "0.17.2"
 itertools = "0.14.0"
 thiserror = "2.0.18"
 # khal
-khal = { git = "https://github.com/dimforge/khal.git", rev = "1dd6b842e9dc5a24ec25f1625ec1c1ef07f4cc1c", features = ["derive", "cpu"] }
-khal-builder = { git = "https://github.com/dimforge/khal.git", rev = "1dd6b842e9dc5a24ec25f1625ec1c1ef07f4cc1c" }
-khal-std = { git = "https://github.com/dimforge/khal.git", rev = "1dd6b842e9dc5a24ec25f1625ec1c1ef07f4cc1c" }
+khal = { git = "https://github.com/dimforge/khal.git", rev = "61ece42e149547539ef14e18c2dfa4fcf33967cf", features = ["derive", "cpu"] }
+khal-builder = { git = "https://github.com/dimforge/khal.git", rev = "61ece42e149547539ef14e18c2dfa4fcf33967cf" }
+khal-std = { git = "https://github.com/dimforge/khal.git", rev = "61ece42e149547539ef14e18c2dfa4fcf33967cf" }
 
 # Compile build-dependencies in release mode with
 # the same settings as regular dependencies.

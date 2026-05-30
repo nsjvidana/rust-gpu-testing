@@ -2,6 +2,7 @@
 name = "shader_crate"
 version.workspace = true
 edition.workspace = true
+links = "shader_crate"
 
 [dependencies]
 khal-std.workspace = true

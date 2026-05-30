@@ -6,11 +6,11 @@ edition.workspace = true
 [dependencies]
 shader_crate = { path = "../shader_crate/" }
 khal.workspace = true
+khal-std.workspace = true
 kiss3d.workspace = true
 rapier3d.workspace = true
 egui_plot.workspace = true
 rapier3d-meshloader.workspace = true
-glam.workspace = true
 pollster.workspace = true
 rand.workspace = true
 include_dir.workspace = true
@@ -21,6 +21,7 @@ rayon = "1.12.0"
 
 [build-dependencies]
 khal-builder.workspace = true
+shader_crate = { path = "../shader_crate" }
 
 [lints]
 workspace = true

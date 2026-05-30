@@ -4,11 +4,11 @@ use crate::shader::run_fdtd2::{ElectricMaterial2, FdtdData2, FdtdGrid2, Gaussian
 use crate::shader::ImportedObjects;
 use crate::shader::{parry3d, parrymath};
 use crate::util::draw_bb;
-use glam::USizeVec3;
 use itertools::izip;
 use kiss3d::egui;
 use kiss3d::egui::Widget;
 use kiss3d::prelude::*;
+use kiss3d::glamx::*;
 use shader_crate::flat_idx_to_vector;
 use std::path::{Path, PathBuf};
 
@@ -200,15 +200,16 @@ impl TestbedWindow2 {
             .cfl_condition(stability.dt_multiplier);
 
         // Update grid dimensions & grid cells to encompass all objects
+        let cell_size = data.grid.cell_size;
         let spacer_region_offset = Vec3::from(
-            (stability.spacer_region_width as f32 * data.grid.cell_size, 0.)
+            (stability.spacer_region_width as f32 * cell_size, 0.)
         );
         self.grid_bb_sim = [
             self.grid_bb[0] - spacer_region_offset,
             self.grid_bb[1] + spacer_region_offset
         ];
         let bb_dimensions_sim = self.grid_bb_sim[1] - self.grid_bb_sim[0];
-        data.grid.n_cells = (bb_dimensions_sim.xy() / data.grid.cell_size).ceil().as_uvec2();
+        data.grid.n_cells = (bb_dimensions_sim.xy() / cell_size).ceil().as_uvec2();
             data.update_cells();
         let n_cellsi = data.grid.n_cells.as_ivec2();
 
@@ -221,7 +222,7 @@ impl TestbedWindow2 {
                 }
             }
             parry3d::shape::Voxels::new(
-                parrymath::Vec3::new(data.grid.cell_size.x, data.grid.cell_size.y, 0.),
+                parrymath::Vec3::new(cell_size.x, cell_size.y, 0.),
                 coords.as_slice()
             )
         };
