@@ -273,24 +273,7 @@ impl SimulationControlUi2 {
         ui.label("Grid Z Level:");
         changed |= egui::DragValue::new(&mut self.grid_z_level).speed(0.01).ui(ui).changed();
 
-        ui.collapsing("Stability Parameters", |ui| {
-            let StabilityValues2 {
-                cells_per_wavelength,
-                dt_multiplier,
-                spacer_region_width,
-                material_smoothing_resolution,
-            } = &mut self.stability_values2;
-            ui.label("Cells per Wavelength:");
-            changed |= egui::DragValue::new(cells_per_wavelength).speed(1).ui(ui).changed();
-            ui.label("Dt Multiplier:");
-            changed |= egui::DragValue::new(dt_multiplier)
-                .range((1. + f32::MIN_POSITIVE)..=f32::MAX).speed(0.01).ui(ui).changed();
-            ui.label("Spacer Region Width:");
-            changed |= egui::DragValue::new(spacer_region_width).speed(1).ui(ui).changed();
-            ui.label("Material Smoothing Resolution:");
-            changed |= egui::DragValue::new(material_smoothing_resolution)
-                .range(1..=u32::MAX).speed(1).ui(ui).changed();
-        });
+        changed |= self.stability_values2.ui(ui);
 
         ui.horizontal(|ui| {
             let prev_started = self.started;
@@ -322,6 +305,31 @@ pub struct StabilityValues2 {
     pub dt_multiplier: f32,
     pub spacer_region_width: usize,
     pub material_smoothing_resolution: u32,
+}
+
+impl StabilityValues2 {
+    pub fn ui(&mut self, ui: &mut egui::Ui) -> bool {
+        let mut changed = false;
+        ui.collapsing("Stability Parameters", |ui| {
+            let StabilityValues2 {
+                cells_per_wavelength,
+                dt_multiplier,
+                spacer_region_width,
+                material_smoothing_resolution,
+            } = self;
+            ui.label("Cells per Wavelength:");
+            changed |= egui::DragValue::new(cells_per_wavelength).speed(1).ui(ui).changed();
+            ui.label("Dt Multiplier:");
+            changed |= egui::DragValue::new(dt_multiplier)
+                .range((1. + f32::MIN_POSITIVE)..=f32::MAX).speed(0.01).ui(ui).changed();
+            ui.label("Spacer Region Width:");
+            changed |= egui::DragValue::new(spacer_region_width).speed(1).ui(ui).changed();
+            ui.label("Material Smoothing Resolution:");
+            changed |= egui::DragValue::new(material_smoothing_resolution)
+                .range(1..=u32::MAX).speed(1).ui(ui).changed();
+        });
+        changed
+    }
 }
 
 impl Default for StabilityValues2 {
