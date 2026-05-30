@@ -6,7 +6,7 @@ use crate::util::{CreateGpuBuffer, CreateGpuBufferReadable, GpuBufferReadable};
 use khal::backend::{Backend, DispatchGrid, Encoder, GpuBackend, GpuBuffer};
 use khal::Shader;
 use kiss3d::egui::Widget;
-use kiss3d::glamx::*;
+use glamx::*;
 use kiss3d::prelude::*;
 use shader_crate::fdtd2::{Fdtd2, GpuSource2, GridCell2, GridInfo2, MaterialConstants2, SoftSource2};
 use shader_crate::vector_to_flat_idx;

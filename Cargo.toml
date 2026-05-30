@@ -17,6 +17,7 @@ kiss3d = { version = "0.42.0", features = ["egui"] }
 egui_plot = { version = "0.35.0" }
 rapier3d-meshloader = { version = "0.13.0", features = ["stl", "collada", "wavefront"] }
 rapier3d = "*"
+glamx = { version = "0.3", features = ["bytemuck"] }
 pollster = "0.4.0"
 bytemuck = { version = "*", features = ["derive"]}
 rand = "0.10.0"

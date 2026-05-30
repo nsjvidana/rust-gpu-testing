@@ -6,7 +6,7 @@ edition.workspace = true
 [dependencies]
 shader_crate = { path = "../shader_crate/" }
 khal.workspace = true
-khal-std.workspace = true
+glamx.workspace = true
 kiss3d.workspace = true
 rapier3d.workspace = true
 egui_plot.workspace = true

@@ -2,7 +2,6 @@ use crate::prelude::*;
 use khal::backend::{Backend, Buffer, DeviceValue, Encoder, GpuBackend, GpuBuffer, GpuEncoder};
 use khal::re_exports::bytemuck::{AnyBitPattern, NoUninit};
 use khal::BufferUsages;
-use kiss3d::prelude::{Color, Polyline3d, Window};
 
 pub use self::visualization::*;
 
@@ -96,7 +95,7 @@ impl<T: DeviceValue + NoUninit + AnyBitPattern> CreateGpuBufferReadable<T> for T
 
 mod visualization {
     use kiss3d::color::Color;
-    use kiss3d::glamx::*;
+    use glamx::*;
     use kiss3d::prelude::{Polyline3d, Window};
 
     /// Draws a bounding box `bb` where `bb = [min, max]` of the bb's bounds.

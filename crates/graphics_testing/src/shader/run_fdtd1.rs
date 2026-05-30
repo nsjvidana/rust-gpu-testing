@@ -12,7 +12,7 @@ use rayon::prelude::*;
 use shader_crate::fdtd1::{Dft1, DftInfo1, Fdtd1, FinishDft1, GpuSource1, GridCell1, GridInfo1, MaterialConstants1, PerfectBoundaryData, PrecomputeDftKernels1};
 use shader_crate::GpuComplexPolar;
 use std::ops::{Range, RangeInclusive};
-use kiss3d::glamx::Vec3;
+use glamx::Vec3;
 
 #[derive(Shader)]
 struct GpuKernels {

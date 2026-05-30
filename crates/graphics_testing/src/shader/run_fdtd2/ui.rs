@@ -8,7 +8,7 @@ use itertools::izip;
 use kiss3d::egui;
 use kiss3d::egui::Widget;
 use kiss3d::prelude::*;
-use kiss3d::glamx::*;
+use glamx::*;
 use shader_crate::flat_idx_to_vector;
 use std::path::{Path, PathBuf};
 

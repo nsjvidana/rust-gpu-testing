@@ -1282,11 +1282,11 @@ name = "graphics_testing"
 version = "0.1.0"
 dependencies = [
  "egui_plot",
+ "glamx 0.3.0",
  "include_dir",
  "itertools",
  "khal",
  "khal-builder",
- "khal-std",
  "kiss3d",
  "pollster",
  "rand 0.10.0",
