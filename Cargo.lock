@@ -1619,7 +1619,7 @@ checksum = "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
 [[package]]
 name = "kiss3d"
 version = "0.41.0"
-source = "git+https://github.com/dimforge/kiss3d.git?rev=0983a85a4021769c6723eb7933194c08e2e02824#0983a85a4021769c6723eb7933194c08e2e02824"
+source = "git+https://github.com/dimforge/kiss3d.git?rev=1c1739653d7f26241dd064f98f4b263900c5111e#1c1739653d7f26241dd064f98f4b263900c5111e"
 dependencies = [
  "bitflags 2.11.0",
  "bytemuck",
@@ -1630,6 +1630,7 @@ dependencies = [
  "glamx 0.2.0",
  "image",
  "kiss3d-macro",
+ "log",
  "num-traits",
  "oneshot",
  "pollster",
@@ -1646,7 +1647,7 @@ dependencies = [
 [[package]]
 name = "kiss3d-macro"
 version = "0.36.0"
-source = "git+https://github.com/dimforge/kiss3d.git?rev=0983a85a4021769c6723eb7933194c08e2e02824#0983a85a4021769c6723eb7933194c08e2e02824"
+source = "git+https://github.com/dimforge/kiss3d.git?rev=1c1739653d7f26241dd064f98f4b263900c5111e#1c1739653d7f26241dd064f98f4b263900c5111e"
 dependencies = [
  "proc-macro2",
  "quote",

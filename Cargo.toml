@@ -13,7 +13,7 @@ edition = "2024"
 unexpected_cfgs = { level = "allow", check-cfg = ['cfg(target_arch, values("spirv"))'] }
 
 [workspace.dependencies]
-kiss3d = { git = "https://github.com/dimforge/kiss3d.git", rev = "0983a85a4021769c6723eb7933194c08e2e02824", features = ["egui"] }
+kiss3d = { git = "https://github.com/dimforge/kiss3d.git", rev = "1c1739653d7f26241dd064f98f4b263900c5111e", features = ["egui"] }
 egui_plot = { version = "0.35.0" }
 rapier3d-meshloader = { version = "0.13.0", features = ["stl", "collada", "wavefront"] }
 rapier3d = "*"
