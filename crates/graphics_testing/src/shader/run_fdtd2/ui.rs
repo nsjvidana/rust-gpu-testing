@@ -211,36 +211,8 @@ impl TestbedWindow2 {
         let bb_dimensions_sim = self.grid_bb_sim[1] - self.grid_bb_sim[0];
         data.grid.n_cells = (bb_dimensions_sim.xy() / cell_size).ceil().as_uvec2();
             data.update_cells();
-        let n_cellsi = data.grid.n_cells.as_ivec2();
 
-        // Discretize objects for grid cells
-        let voxels = {
-            let mut coords = Vec::new();
-            for y in 0..n_cellsi.y {
-                for x in 0..n_cellsi.x {
-                    coords.push(parrymath::IVector::new(x, y, 0));
-                }
-            }
-            parry3d::shape::Voxels::new(
-                parrymath::Vec3::new(cell_size.x, cell_size.y, 0.),
-                coords.as_slice()
-            )
-        };
-        let vox_shape = parry3d::shape::Cuboid::new(voxels.voxel_size() / 2.);
-        for (i, vox) in voxels.voxels().enumerate() {
-            let vox_pose = parrymath::Pose::from_translation(vox.center);
-            for (obj, node) in izip!(obj_shapes, obj_nodes) {
-                let obj_translation = parrymath::Vector::from_array((node.position() - self.grid_bb[0]).to_array());
-                let obj_pose = parrymath::Pose::from_translation(obj_translation);
-                let hit = parry3d::query::intersection_test(&vox_pose, &vox_shape, &obj_pose, &*obj.shape)
-                    .is_ok_and(|b| b);
-                if hit {
-                    data.grid.cells[i].material_i = i as u32 + 1;
-                }
-            }
-        }
-
-        // TODO: dielectric smoothing. scirs2-ndimage crate can help with this.
+        // TODO: dielectric smoothing (using averaging?)
     }
 }
 
