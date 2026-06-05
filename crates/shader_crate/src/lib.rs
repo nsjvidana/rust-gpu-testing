@@ -1,6 +1,6 @@
 #![cfg_attr(target_arch = "spirv", no_std)]
 
-use khal_std::glamx::Vec2;
+use khal_std::glamx::{UVec2, Vec2};
 use bytemuck::{Pod, Zeroable};
 use khal_std::num_traits::Float;
 
@@ -62,6 +62,58 @@ macro_rules! e_i {
             theta: $theta
         }
     };
+}
+
+/// A version of `glamx::USizeVec2` to only use within this crate.
+#[derive(Copy, Clone, Pod, Zeroable, Default, Debug)]
+#[repr(C)]
+pub(crate) struct USizeVec2 {
+    pub x: usize,
+    pub y: usize,
+}
+
+impl USizeVec2 {
+    #[inline]
+    pub fn new(x: usize, y: usize) -> Self {
+        Self { x, y }
+    }
+
+    #[inline]
+    pub fn splat(v: usize) -> Self {
+        Self { x: v, y: v }
+    }
+
+    #[inline]
+    pub fn min(&self, other: USizeVec2) -> Self {
+        Self { x: self.x.min(other.x), y: self.y.min(other.y) }
+    }
+
+    #[inline]
+    pub fn map<F>(self, f: F) -> Self
+    where
+        F: Fn(usize) -> usize,
+    {
+        Self::new(f(self.x), f(self.y))
+    }
+}
+
+impl From<UVec2> for USizeVec2 {
+    fn from(value: UVec2) -> Self {
+        Self {
+            x: value.x as usize,
+            y: value.y as usize,
+        }
+    }
+}
+
+impl core::ops::Add<usize> for USizeVec2 {
+    type Output = USizeVec2;
+    fn add(self, rhs: usize) -> Self::Output {
+        Self {
+            x: self.x + rhs,
+            y: self.y + rhs,
+        }
+    }
 }
 
 /// A complex number in polar coordinates
