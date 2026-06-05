@@ -3,7 +3,7 @@ mod ui;
 use crate::prelude::GpuResult;
 use crate::shader::run_fdtd2::ui::TestbedWindow2;
 use crate::util::{CreateGpuBuffer, CreateGpuBufferReadable, GpuBufferReadable};
-use khal::backend::{Backend, DispatchGrid, Encoder, GpuBackend, GpuBuffer};
+use khal::backend::{Backend, Buffer, DispatchGrid, Encoder, GpuBackend, GpuBuffer};
 use khal::Shader;
 use kiss3d::egui::Widget;
 use glamx::*;
@@ -32,7 +32,7 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
                 runner = None;
             }
             else {
-                runner = Some(data.create_gpu(1, backend)?);
+                runner = Some(data.create_gpu_new(1, backend)?);
             }
         }
         if sim.needs_reset {
@@ -44,8 +44,18 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
         if let Some(runner) = &mut runner {
             if sim.started && !sim.paused {
                 backend.synchronize()?;
-                runner.cells.read(backend, &mut data.grid.cells).await?;
+                let mut field_vals = vec![FieldValues2::default(); runner.field_values.buffer.len()];
+
+                runner.field_values.read(backend, &mut field_vals).await?;
                 runner.submit_step(&gpu_kernels, backend)?;
+
+                for (c, field_vals) in data.grid.cells.iter_mut()
+                    .zip(&field_vals)
+                {
+                    c.h = field_vals.h;
+                    c.dn_z = field_vals.dn_z;
+                    c.en_z = field_vals.en_z;
+                }
             }
         }
 
