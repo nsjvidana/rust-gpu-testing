@@ -195,6 +195,7 @@ impl TestbedWindow2 {
 
         let pulse = GaussianPulse2::from_max_frequency(*source_max_frequency, 1.);
         data.set_source(pulse, *source_resolution);
+        // TODO: update data.source_cell_idx.
 
         data.min_wavelength(*source_max_frequency, stability.cells_per_wavelength)
             .cfl_condition(stability.dt_multiplier);
@@ -222,6 +223,8 @@ pub struct SimulationControlUi2 {
     pub source_resolution: usize,
     pub grid_z_level: f32,
     pub stability_values2: StabilityValues2,
+    // TODO: let user edit this and see it visibly in the simulation scene.
+    pub soft_source_pos: Vec2,
 
     pub started: bool,
     pub paused: bool,
