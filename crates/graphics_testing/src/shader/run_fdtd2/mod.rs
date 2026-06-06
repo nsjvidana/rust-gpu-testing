@@ -36,9 +36,7 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
             }
         }
         if sim.needs_reset {
-            for c in data.grid.cells.iter_mut() {
-                *c = GridCell2::default()
-            }
+            *data = FdtdData2::new();
             sim.reset_buttons();
         }
         if let Some(runner) = &mut runner {
@@ -140,11 +138,11 @@ impl FdtdData2 {
     }
 
     pub fn update_cells(&mut self) {
-        self.grid.cells.resize(self.grid.n_cells.element_product() as usize, GridCell2::default());
+        self.grid.cells.resize(self.grid.grid_dim.element_product() as usize, GridCell2::default());
     }
 
     pub fn create_gpu(&mut self, steps_per_submission: usize, backend: &GpuBackend) -> GpuResult<GpuFdtd2> {
-        let n_cells3 = UVec3::from((self.grid.n_cells, 1));
+        let grid_dim3 = UVec3::from((self.grid.grid_dim, 1));
         self.prepare_materials();
 
         let step_counter = 0;
@@ -152,11 +150,11 @@ impl FdtdData2 {
         let gpu_fdtd = GpuFdtd2 {
             cells: self.grid.cells.create_gpu_buffer_readable(backend)?,
             grid_info: GridInfo2 {
-                n_cells: self.grid.n_cells,
+                grid_dim: self.grid.grid_dim,
                 cell_size: self.grid.cell_size,
                 i_incr: UVec2::new(
-                    vector_to_flat_idx!(UVec3::X, n_cells3),
-                    vector_to_flat_idx!(UVec3::Y, n_cells3),
+                    vector_to_flat_idx!(UVec3::X, grid_dim3),
+                    vector_to_flat_idx!(UVec3::Y, grid_dim3),
                 ),
                 dn_z_update_coeff: ElectricMaterial2::C_0 * self.dt,
                 _padding: 0
@@ -172,7 +170,7 @@ impl FdtdData2 {
                 .create_gpu_buffer(backend)?,
             step_counter: step_counter.create_gpu_buffer(backend)?,
 
-            dispatch_grid: n_cells3.map(|v| v.div_ceil(8)).to_array(),
+            dispatch_grid: grid_dim3.map(|v| v.div_ceil(8)).to_array(),
             steps_per_submission,
         };
 
@@ -180,13 +178,13 @@ impl FdtdData2 {
     }
 
     pub fn create_gpu_new(&mut self, steps_per_submission: usize, backend: &GpuBackend) -> GpuResult<GpuFdtd2New> {
-        let grid_dim3 = UVec3::from((self.grid.n_cells, 1));
+        let grid_dim3 = UVec3::from((self.grid.grid_dim, 1));
         let cell_count = grid_dim3.element_product() as usize;
         let step_counter = 0;
 
         let gpu_fdtd = GpuFdtd2New {
             grid_info: GridInfo2 {
-                n_cells: self.grid.n_cells,
+                grid_dim: self.grid.grid_dim,
                 cell_size: self.grid.cell_size,
                 i_incr: UVec2::new(
                     vector_to_flat_idx!(UVec3::X, grid_dim3),
@@ -309,7 +307,7 @@ pub struct FdtdGrid2 {
     pub update_coeffs: Vec<MaterialConstants2>,
     pub cell_size: Vec2,
     /// Number of cells for each axis (the dimensions of the grid in `cell_size` units).
-    pub n_cells: UVec2,
+    pub grid_dim: UVec2,
 }
 
 impl FdtdGrid2 {
@@ -318,7 +316,7 @@ impl FdtdGrid2 {
             cells: vec![],
             update_coeffs: vec![],
             cell_size: Vec2::MAX,
-            n_cells: UVec2::new(0, 0),
+            grid_dim: UVec2::new(0, 0),
         }
     }
 }

@@ -127,12 +127,12 @@ impl TestbedWindow2 {
 
     pub fn update_cell_positions(&mut self, grid: &FdtdGrid2) {
         let cell_size3 = Vec3::from((grid.cell_size, 0.));
-        let n_cells3 = USizeVec3::from((grid.n_cells.as_usizevec2(), 1));
+        let grid_dim3 = USizeVec3::from((grid.grid_dim.as_usizevec2(), 1));
         let offset = self.grid_bb_sim[0] +
             Vec3::new(0., 0., self.simulation_control_ui.grid_z_level);
         self.cell_positions = (0..grid.cells.len())
             .map(|i| {
-                let i3 = flat_idx_to_vector!(i, n_cells3, USizeVec3);
+                let i3 = flat_idx_to_vector!(i, grid_dim3, USizeVec3);
                 i3.as_vec3() * cell_size3 + offset
             })
             .collect();
@@ -198,8 +198,6 @@ impl TestbedWindow2 {
             ..
         } = &self.object_explorer_ui.imported_objects;
 
-        data.grid.update_coeffs.clear();
-        data.grid.cells.clear();
 
         data.materials.truncate(1);
         data.prepare_materials();
@@ -221,16 +219,18 @@ impl TestbedWindow2 {
             self.grid_bb[1] + spacer_region_offset
         ];
         let bb_dimensions_sim = self.grid_bb_sim[1] - self.grid_bb_sim[0];
-        data.grid.n_cells = (bb_dimensions_sim.xy() / cell_size).ceil().as_uvec2();
-            data.update_cells();
+        data.grid.grid_dim = (bb_dimensions_sim.xy() / cell_size).ceil().as_uvec2();
+        data.grid.cells.clear();
+        data.update_cells();
 
         // Update source cell index
-        let grid_dim3 = UVec3::from((data.grid.n_cells, 1));
+        let grid_dim3 = UVec3::from((data.grid.grid_dim, 1));
         let src_pos = soft_source_pos - self.grid_bb_sim[0].xy();
         let src_cell_idx = UVec3::from(((src_pos / cell_size).as_uvec2(), 0));
         data.source_cell_idx = vector_to_flat_idx!(src_cell_idx, grid_dim3);
 
         let bkg_update_coeff = data.materials[0].to_gpu(data.dt);
+        data.grid.update_coeffs.clear();
         data.grid.update_coeffs.resize(data.grid.cells.len(), bkg_update_coeff);
 
         // TODO: dielectric smoothing (using averaging?)
@@ -242,7 +242,6 @@ pub struct SimulationControlUi2 {
     pub source_resolution: usize,
     pub grid_z_level: f32,
     pub stability_values2: StabilityValues2,
-    // TODO: let user edit this and see it visibly in the simulation scene.
     pub soft_source_pos: Vec2,
 
     pub started: bool,

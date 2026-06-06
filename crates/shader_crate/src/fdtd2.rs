@@ -14,13 +14,13 @@ pub fn fdtd2(
 ) {
     let id3 = id;
     let id = id3.xy();
-    let n_cells = grid.n_cells;
-    let n_cells3 = UVec3::from((n_cells, 1));
+    let grid_dim = grid.grid_dim;
+    let grid_dim3 = UVec3::from((grid_dim, 1));
     // There's probably no workgroup barriers needed for 2d fdtd so just return at extra invocations
-    let cmp_i = id.cmpge(n_cells);
+    let cmp_i = id.cmpge(grid_dim);
     if cmp_i.any() || id3.z > 0 { return; }
 
-    let i = vector_to_flat_idx!(id3, n_cells3);
+    let i = vector_to_flat_idx!(id3, grid_dim3);
     let i_usize = i as usize;
     let i_splat = UVec2::splat(i);
     let mat = materials[cells[i_usize].material_i as usize];
@@ -28,7 +28,7 @@ pub fn fdtd2(
     let i_incr = grid.i_incr;
 
     // Update H from En
-    let not_h_boundary = id.cmplt(n_cells - 1);
+    let not_h_boundary = id.cmplt(grid_dim - 1);
     let en_1_cell_idxs = (i + i_incr).min(UVec2::splat(cells.len() as u32 - 1));
     let en_z = cells[i_usize].en_z;
     let en_x1_z = if not_h_boundary.x { cells[en_1_cell_idxs.x as usize].en_z } else { 0. };
@@ -82,7 +82,7 @@ pub fn fdtd2_new(
     #[spirv(uniform, descriptor_set = 0, binding = 5)] grid: &GridInfo2,
 ) {
     let id = id3.xy();
-    let grid_dim = grid.n_cells;
+    let grid_dim = grid.grid_dim;
     let grid_dim3 = UVec3::from((grid_dim, 1));
     let inside_grid = id.cmplt(grid_dim).all() && id3.z == 0;
 
@@ -156,7 +156,7 @@ pub struct FieldValues2 {
 #[repr(C)]
 pub struct GridInfo2 {
     /// Number of cells for each axis (the dimensions of the grid in `cell_size` units.
-    pub n_cells: UVec2,
+    pub grid_dim: UVec2,
     pub cell_size: Vec2,
     /// Used for incrementing array index to access neighboring cells when computing curl.
     pub i_incr: UVec2,
