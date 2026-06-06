@@ -196,7 +196,7 @@ impl FdtdData2 {
                 _padding: 0
             }.create_gpu_uniform(backend)?,
             field_values: vec![FieldValues2::default(); cell_count].create_gpu_buffer_readable(backend)?,
-            update_coeffs: vec![MaterialConstants2::default(); cell_count].create_gpu_buffer(backend)?,
+            update_coeffs: self.grid.update_coeffs.create_gpu_buffer(backend)?,
             source: GpuSource2 {
                 cell_idx: self.source_cell_idx,
             }.create_gpu_buffer(backend)?,
@@ -306,6 +306,7 @@ impl GpuFdtd2New {
 
 pub struct FdtdGrid2 {
     pub cells: Vec<GridCell2>,
+    pub update_coeffs: Vec<MaterialConstants2>,
     pub cell_size: Vec2,
     /// Number of cells for each axis (the dimensions of the grid in `cell_size` units).
     pub n_cells: UVec2,
@@ -315,6 +316,7 @@ impl FdtdGrid2 {
     pub fn new() -> Self {
         Self {
             cells: vec![],
+            update_coeffs: vec![],
             cell_size: Vec2::MAX,
             n_cells: UVec2::new(0, 0),
         }

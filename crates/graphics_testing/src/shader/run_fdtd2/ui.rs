@@ -9,7 +9,7 @@ use kiss3d::egui;
 use kiss3d::egui::Widget;
 use kiss3d::prelude::*;
 use glamx::*;
-use shader_crate::flat_idx_to_vector;
+use shader_crate::{flat_idx_to_vector, vector_to_flat_idx};
 use std::path::{Path, PathBuf};
 
 pub struct TestbedWindow2 {
@@ -71,6 +71,9 @@ impl TestbedWindow2 {
                 self.update_simulation_data(data);
                 self.update_cell_positions(&data.grid);
             }
+            else if self.simulation_control_ui.needs_reset {
+                self.max_en_value = 0.;
+            }
             callback(&mut self.window, data, &mut self.simulation_control_ui).await?;
 
             if self.import_ui.import_clicked {
@@ -114,6 +117,9 @@ impl TestbedWindow2 {
 
         draw_bb(&mut self.window, self.grid_bb, WHITE, 2., false);
 
+        let pos = Vec3::from((self.simulation_control_ui.soft_source_pos, self.simulation_control_ui.grid_z_level));
+        self.window.draw_point(pos, RED, 10.);
+
         if self.simulation_control_ui.started {
             draw_bb(&mut self.window, self.grid_bb_sim, ORANGE, 2., false);
         }
@@ -148,6 +154,8 @@ impl TestbedWindow2 {
             min = min.min(new_min);
             max = max.max(new_max);
         }
+        min = min.with_xy(min.xy().min(self.simulation_control_ui.soft_source_pos));
+        max = max.with_xy(max.xy().max(self.simulation_control_ui.soft_source_pos));
         if min == Vec3::MAX {
             min = Vec3::ZERO
         }
@@ -180,6 +188,7 @@ impl TestbedWindow2 {
             source_max_frequency,
             source_resolution,
             stability_values2: stability,
+            soft_source_pos,
             ..
         } = &self.simulation_control_ui;
         let ImportedObjects {
@@ -189,13 +198,15 @@ impl TestbedWindow2 {
             ..
         } = &self.object_explorer_ui.imported_objects;
 
+        data.grid.update_coeffs.clear();
+        data.grid.cells.clear();
+
         data.materials.truncate(1);
         data.prepare_materials();
         data.materials.extend_from_slice(&obj_mats);
 
         let pulse = GaussianPulse2::from_max_frequency(*source_max_frequency, 1.);
         data.set_source(pulse, *source_resolution);
-        // TODO: update data.source_cell_idx.
 
         data.min_wavelength(*source_max_frequency, stability.cells_per_wavelength)
             .cfl_condition(stability.dt_multiplier);
@@ -213,11 +224,18 @@ impl TestbedWindow2 {
         data.grid.n_cells = (bb_dimensions_sim.xy() / cell_size).ceil().as_uvec2();
             data.update_cells();
 
+        let grid_dim3 = UVec3::from((data.grid.n_cells, 1));
+        let src_pos = soft_source_pos - self.grid_bb_sim[0].xy();
+        let src_cell_idx = UVec3::from(((src_pos / cell_size).as_uvec2(), 0));
+        data.source_cell_idx = vector_to_flat_idx!(src_cell_idx, grid_dim3);
+
+        let bkg_update_coeff = data.materials[0].to_gpu(data.dt);
+        data.grid.update_coeffs.resize(data.grid.cells.len(), bkg_update_coeff);
+
         // TODO: dielectric smoothing (using averaging?)
     }
 }
 
-#[derive(Default)]
 pub struct SimulationControlUi2 {
     pub source_max_frequency: f32,
     pub source_resolution: usize,
@@ -252,6 +270,12 @@ impl SimulationControlUi2 {
         changed |= self.stability_values2.ui(ui);
 
         ui.horizontal(|ui| {
+            ui.label("Soft Source Position:");
+            changed |= egui::DragValue::new(&mut self.soft_source_pos.x).speed(0.01).ui(ui).changed();
+            changed |= egui::DragValue::new(&mut self.soft_source_pos.y).speed(0.01).ui(ui).changed();
+        });
+
+        ui.horizontal(|ui| {
             let prev_started = self.started;
             self.started |= ui.selectable_label(self.started, "Start").clicked();
             self.just_started = !prev_started && self.started;
@@ -265,6 +289,7 @@ impl SimulationControlUi2 {
                 self.needs_reset = true;
             }
         });
+
         changed
     }
 
@@ -273,6 +298,22 @@ impl SimulationControlUi2 {
         self.paused = false;
         self.just_started = false;
         self.needs_reset = false;
+    }
+}
+
+impl Default for SimulationControlUi2 {
+    fn default() -> Self {
+        Self {
+            source_max_frequency: 2.4e6,
+            source_resolution: 10,
+            grid_z_level: 0.,
+            stability_values2: StabilityValues2::default(),
+            soft_source_pos: Vec2::ZERO,
+            started: false,
+            paused: false,
+            just_started: false,
+            needs_reset: false,
+        }
     }
 }
 

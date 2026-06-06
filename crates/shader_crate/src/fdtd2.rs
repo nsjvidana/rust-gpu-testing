@@ -47,7 +47,7 @@ pub fn fdtd2(
     let h = cells[i_usize].h;
     let h_x1_y = if not_dn_boundary.x { cells[h_1_cell_idxs.x as usize].h.y } else { 0. };
     let h_y1_x = if not_dn_boundary.y { cells[h_1_cell_idxs.y as usize].h.x } else { 0. };
-    let h_curl_z = ((h.y - h_x1_y) / d.x) - ((h.x - h_y1_x) / d.y );
+    let h_curl_z = ((h.y - h_x1_y) / d.x) - ((h.x - h_y1_x) / d.y);
     let delta_dn = grid.dn_z_update_coeff * h_curl_z;
     cells[i_usize].dn_z += delta_dn;
     cells[i_usize].en_z += mat.en_z_update_coeff * delta_dn;
@@ -84,7 +84,7 @@ pub fn fdtd2_new(
     let id = id3.xy();
     let grid_dim = grid.n_cells;
     let grid_dim3 = UVec3::from((grid_dim, 1));
-    let cmp_id = id.cmpge(grid_dim);
+    let inside_grid = id.cmplt(grid_dim).all() && id3.z == 0;
 
     let n_cells = field_values.len();
     let i = (vector_to_flat_idx!(id3, grid_dim3) as usize)
@@ -94,7 +94,7 @@ pub fn fdtd2_new(
 
     // Do regular update for invocations that are inside the simulation grid
     // Can't just return early because we use a workgroup barrier later on
-    if cmp_id.any() || id3.z > 0 {
+    if inside_grid {
         let i_incr = USizeVec2::from(grid.i_incr);
         let d = grid.cell_size;
 
@@ -133,8 +133,10 @@ pub fn fdtd2_new(
     workgroup_memory_barrier_with_group_sync();
 
     // Update En & write everything back
-    fields.en_z = coeffs.en_z_update_coeff * fields.dn_z;
-    field_values[i] = fields;
+    if inside_grid {
+        fields.en_z = coeffs.en_z_update_coeff * fields.dn_z;
+        field_values[i] = fields;
+    }
 }
 
 /// All vector field values within a cell
