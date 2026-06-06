@@ -224,6 +224,7 @@ impl TestbedWindow2 {
         data.grid.n_cells = (bb_dimensions_sim.xy() / cell_size).ceil().as_uvec2();
             data.update_cells();
 
+        // Update source cell index
         let grid_dim3 = UVec3::from((data.grid.n_cells, 1));
         let src_pos = soft_source_pos - self.grid_bb_sim[0].xy();
         let src_cell_idx = UVec3::from(((src_pos / cell_size).as_uvec2(), 0));
