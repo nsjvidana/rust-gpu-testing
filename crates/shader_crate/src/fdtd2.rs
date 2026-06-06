@@ -81,62 +81,54 @@ pub fn fdtd2_new(
     #[spirv(storage_buffer, descriptor_set = 0, binding = 4)] step_counter: &mut u32,
     #[spirv(uniform, descriptor_set = 0, binding = 5)] grid: &GridInfo2,
 ) {
-    let id = id3.xy();
-    let grid_dim = grid.grid_dim;
-    let grid_dim3 = UVec3::from((grid_dim, 1));
-    let inside_grid = id.cmplt(grid_dim).all() && id3.z == 0;
+    let id2 = id3.xy();
+    let grid_dim3 = UVec3::from((grid.grid_dim, 1));
+    let d = grid.cell_size;
+    let idx = (vector_to_flat_idx!(id3, grid_dim3) as usize).min(field_values.len() - 1);
+    let cell_incr = USizeVec2::from(grid.i_incr);
 
-    let n_cells = field_values.len();
-    let i = (vector_to_flat_idx!(id3, grid_dim3) as usize)
-        .min(n_cells - 1);
-    let mut fields = field_values[i];
-    let coeffs = update_coeffs[i];
+    let mut fields = field_values[idx];
+    let update_coeffs = update_coeffs[idx];
 
-    // Do regular update for invocations that are inside the simulation grid
-    // Can't just return early because we use a workgroup barrier later on
-    if inside_grid {
-        let i_incr = USizeVec2::from(grid.i_incr);
-        let d = grid.cell_size;
+    // Update H field
+    let idx_incremented = (cell_incr + idx)
+        .min(USizeVec2::splat(field_values.len() - 1));
+    let is_boundary = id2.cmpeq(grid.grid_dim - 1);
+    let en_z_i1 = if is_boundary.x { 0. } else { field_values[idx_incremented.x].en_z };
+    let en_z_j1 = if is_boundary.y { 0. } else { field_values[idx_incremented.y].en_z };
+    let e_curl = Vec2::new(
+        (en_z_j1 - fields.en_z) / d.y,
+        -(en_z_i1 - fields.en_z) / d.x
+    );
+    fields.h += update_coeffs.h_update_coeff * e_curl;
 
-        // Update H from En
-        let not_h_boundary = id.cmplt(grid_dim - 1);
-        let en_1_cell_idxs = (i_incr + i).min(USizeVec2::splat(n_cells - 1));
-        let en_z = fields.en_z;
-        let en_x1_z = if not_h_boundary.x { field_values[en_1_cell_idxs.x].en_z } else { 0. };
-        let en_y1_z = if not_h_boundary.y { field_values[en_1_cell_idxs.y].en_z } else { 0. };
-        let en_curl_xy = Vec2::new(
-            (en_y1_z - en_z) / d.y,
-            -(en_x1_z - en_z) / d.x,
-        );
-        fields.h += coeffs.h_update_coeff * en_curl_xy;
+    // Update Dn field
+    let idx_decremented = cell_incr.map(|incr| {
+        if incr > idx { 0 } else { idx.wrapping_sub(incr) }
+    });
+    let is_boundary = id2.cmpeq(UVec2::ZERO);
+    let h_y_i1 = if is_boundary.x { 0. } else { field_values[idx_decremented.x].h.y };
+    let h_x_j1 = if is_boundary.y { 0. } else { field_values[idx_decremented.y].h.x };
+    let h_curl = (fields.h.y - h_y_i1) / d.x - (fields.h.x - h_x_j1) / d.y;
+    fields.dn_z += grid.dn_z_update_coeff * h_curl;
 
-        // Update Dn from H
-        let not_dn_boundary = id.cmpgt(UVec2::ZERO);
-        let h_1_cell_idxs = i_incr.map(|decr|
-            if decr > i { 0 } else { usize::wrapping_sub(i, decr) }
-        );
-        let h = fields.h;
-        let h_x1_y = if not_dn_boundary.x { field_values[h_1_cell_idxs.x].h.y } else { 0. };
-        let h_y1_x = if not_dn_boundary.y { field_values[h_1_cell_idxs.y].h.x } else { 0. };
-        let h_curl_z = ((h.y - h_x1_y) / d.x) - ((h.x - h_y1_x) / d.y);
-        fields.dn_z += grid.dn_z_update_coeff * h_curl_z;
-    }
-
-    // Inject Source (soft source)
-    // TODO: use a separate kernel for source injection? source injection really just needs one invocation, soooo...
-    if i == source.cell_idx as usize {
-        let val_i = ((*step_counter) as usize).min(source_vals.len() - 1);
-        let enable_source = (val_i < source_vals.len() - 1) as u32 as f32;
-        fields.dn_z += source_vals[val_i] * enable_source;
+    // Source injection
+    if idx == source.cell_idx as usize {
+        let step_counter_usize = *step_counter as usize;
+        let val_idx = step_counter_usize.min(source_vals.len() - 1);
+        let enable_source = (step_counter_usize < source_vals.len()) as u32 as f32;
+        fields.dn_z += source_vals[val_idx] * enable_source;
         *step_counter += 1;
     }
     workgroup_memory_barrier_with_group_sync();
 
-    // Update En & write everything back
-    if inside_grid {
-        fields.en_z = coeffs.en_z_update_coeff * fields.dn_z;
-        field_values[i] = fields;
-    }
+    // Update En field
+    fields.en_z = update_coeffs.en_z_update_coeff * fields.dn_z;
+
+    // Write back results. Return early on out-of-bounds invocations
+    let is_in_grid = id2.cmplt(grid.grid_dim).all() && id3.z == 0;
+    if !is_in_grid { return; }
+    field_values[idx] = fields;
 }
 
 /// All vector field values within a cell
