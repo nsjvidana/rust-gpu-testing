@@ -83,6 +83,10 @@ pub fn fdtd2_new(
 ) {
     let id2 = id3.xy();
     let grid_dim3 = UVec3::from((grid.grid_dim, 1));
+
+    let outside_grid = id3.cmpge(grid_dim3).any();
+    if outside_grid { return; }
+
     let d = grid.cell_size;
     let idx = (vector_to_flat_idx!(id3, grid_dim3) as usize).min(field_values.len() - 1);
     let cell_incr = USizeVec2::from(grid.i_incr);
@@ -113,22 +117,20 @@ pub fn fdtd2_new(
     fields.dn_z += grid.dn_z_update_coeff * h_curl;
 
     // Source injection
-    if idx == source.cell_idx as usize {
-        let step_counter_usize = *step_counter as usize;
-        let val_idx = step_counter_usize.min(source_vals.len() - 1);
-        let enable_source = (step_counter_usize < source_vals.len()) as u32 as f32;
-        fields.dn_z += source_vals[val_idx] * enable_source;
-        *step_counter += 1;
-    }
-    workgroup_memory_barrier_with_group_sync();
+    let step_counter_usize = *step_counter as usize;
+    let val_idx = step_counter_usize.min(source_vals.len() - 1);
+    let enable_source = (idx == source.cell_idx as usize && step_counter_usize < source_vals.len()) as u32 as f32;
+    fields.dn_z += source_vals[val_idx] * enable_source;
 
     // Update En field
     fields.en_z = update_coeffs.en_z_update_coeff * fields.dn_z;
 
-    // Write back results. Return early on out-of-bounds invocations
-    let is_in_grid = id2.cmplt(grid.grid_dim).all() && id3.z == 0;
-    if !is_in_grid { return; }
+    // Write back results
     field_values[idx] = fields;
+
+    if idx == 0 {
+        *step_counter += 1;
+    }
 }
 
 /// All vector field values within a cell
