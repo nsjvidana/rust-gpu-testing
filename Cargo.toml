@@ -26,9 +26,9 @@ rfd = "0.17.2"
 itertools = "0.14.0"
 thiserror = "2.0.18"
 # khal
-khal = { git = "https://github.com/dimforge/khal.git", rev = "61ece42e149547539ef14e18c2dfa4fcf33967cf", features = ["derive", "cpu"] }
-khal-builder = { git = "https://github.com/dimforge/khal.git", rev = "61ece42e149547539ef14e18c2dfa4fcf33967cf" }
-khal-std = { git = "https://github.com/dimforge/khal.git", rev = "61ece42e149547539ef14e18c2dfa4fcf33967cf" }
+khal = { version = "0.2.0", features = ["derive", "cpu"] }
+khal-builder = "0.2.0"
+khal-std = "0.2.0"
 
 # Compile build-dependencies in release mode with
 # the same settings as regular dependencies.
