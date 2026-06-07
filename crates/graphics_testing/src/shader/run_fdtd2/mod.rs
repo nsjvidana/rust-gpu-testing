@@ -13,7 +13,7 @@ use shader_crate::vector_to_flat_idx;
 
 #[derive(Shader)]
 struct GpuKernels2 {
-    fdtd2_new: Fdtd2,
+    fdtd2: Fdtd2,
 }
 
 pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
@@ -43,7 +43,7 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
                 let mut field_vals = vec![FieldValues2::default(); runner.field_values.buffer.len()];
 
                 runner.field_values.read(backend, &mut field_vals).await?;
-                runner.submit_step(&gpu_kernels, backend)?;
+                runner.submit_step(&gpu_kernels.fdtd2, backend)?;
 
                 for (c, field_vals) in data.grid.cells.iter_mut()
                     .zip(&field_vals)
@@ -185,7 +185,7 @@ pub struct GpuFdtd2 {
 }
 
 impl GpuFdtd2 {
-    pub fn submit_step(&mut self, gpu_kernels: &GpuKernels2, backend: &GpuBackend) -> GpuResult<()> {
+    pub fn submit_step(&mut self, fdtd2_kernel: &Fdtd2, backend: &GpuBackend) -> GpuResult<()> {
         let mut encoder = backend.begin_encoding();
 
         let Self {
@@ -201,7 +201,7 @@ impl GpuFdtd2 {
 
         let mut pass = encoder.begin_pass("fdtd2", None);
         for _ in 0..*steps_per_submission {
-            gpu_kernels.fdtd2_new.call(
+            fdtd2_kernel.call(
                 &mut pass,
                 DispatchGrid::Grid(*dispatch_grid),
                 &mut field_values.buffer,
