@@ -8,12 +8,12 @@ use khal::Shader;
 use kiss3d::egui::Widget;
 use glamx::*;
 use kiss3d::prelude::*;
-use shader_crate::fdtd2::{Fdtd2New, FieldValues2, GpuSource2, GridCell2, GridInfo2, MaterialConstants2};
+use shader_crate::fdtd2::{Fdtd2, FieldValues2, GpuSource2, GridCell2, GridInfo2, MaterialConstants2};
 use shader_crate::vector_to_flat_idx;
 
 #[derive(Shader)]
 struct GpuKernels2 {
-    fdtd2_new: Fdtd2New,
+    fdtd2_new: Fdtd2,
 }
 
 pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
@@ -30,7 +30,7 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
                 runner = None;
             }
             else {
-                runner = Some(data.create_gpu_new(1, backend)?);
+                runner = Some(data.to_gpu_runner(1, backend)?);
             }
         }
         if sim.needs_reset {
@@ -139,12 +139,12 @@ impl FdtdData2 {
         self.grid.cells.resize(self.grid.grid_dim.element_product() as usize, GridCell2::default());
     }
 
-    pub fn create_gpu_new(&mut self, steps_per_submission: usize, backend: &GpuBackend) -> GpuResult<GpuFdtd2New> {
+    pub fn to_gpu_runner(&mut self, steps_per_submission: usize, backend: &GpuBackend) -> GpuResult<GpuFdtd2> {
         let grid_dim3 = UVec3::from((self.grid.grid_dim, 1));
         let cell_count = grid_dim3.element_product() as usize;
         let step_counter = 0;
 
-        let gpu_fdtd = GpuFdtd2New {
+        let gpu_fdtd = GpuFdtd2 {
             grid_info: GridInfo2 {
                 grid_dim: self.grid.grid_dim,
                 cell_size: self.grid.cell_size,
@@ -172,7 +172,7 @@ impl FdtdData2 {
     }
 }
 
-pub struct GpuFdtd2New {
+pub struct GpuFdtd2 {
     pub grid_info: GpuBuffer<GridInfo2>,
     pub field_values: GpuBufferReadable<FieldValues2>,
     pub update_coeffs: GpuBuffer<MaterialConstants2>,
@@ -184,7 +184,7 @@ pub struct GpuFdtd2New {
     pub steps_per_submission: usize,
 }
 
-impl GpuFdtd2New {
+impl GpuFdtd2 {
     pub fn submit_step(&mut self, gpu_kernels: &GpuKernels2, backend: &GpuBackend) -> GpuResult<()> {
         let mut encoder = backend.begin_encoding();
 

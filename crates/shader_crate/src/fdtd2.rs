@@ -6,7 +6,7 @@ use khal_std::sync::workgroup_memory_barrier_with_group_sync;
 
 #[spirv_bindgen]
 #[spirv(compute(threads(8, 8, 1)))]
-pub fn fdtd2_new(
+pub fn fdtd2(
     #[spirv(global_invocation_id)] id3: UVec3,
     #[spirv(storage_buffer, descriptor_set = 0, binding = 0)] field_values: &mut [FieldValues2],
     #[spirv(storage_buffer, descriptor_set = 0, binding = 1)] update_coeffs: &[MaterialConstants2],
