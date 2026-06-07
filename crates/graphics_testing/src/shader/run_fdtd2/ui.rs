@@ -244,6 +244,9 @@ pub struct SimulationControlUi2 {
     pub stability_values2: StabilityValues2,
     pub soft_source_pos: Vec2,
 
+    pub pml_enabled: bool,
+    pub pml_width: u32,
+
     pub started: bool,
     pub paused: bool,
     pub just_started: bool,
@@ -274,6 +277,21 @@ impl SimulationControlUi2 {
             changed |= egui::DragValue::new(&mut self.soft_source_pos.x).speed(0.01).ui(ui).changed();
             changed |= egui::DragValue::new(&mut self.soft_source_pos.y).speed(0.01).ui(ui).changed();
         });
+
+        ui.collapsing("UPML", |ui| {
+            changed |= ui.checkbox(&mut self.pml_enabled, "Enable PML")
+                .changed();
+
+            let mut ui_builder = egui::UiBuilder::new();
+            if !self.pml_enabled { ui_builder = ui_builder.disabled() }
+            ui.scope_builder(ui_builder, |ui| {
+                ui.horizontal(|ui| {
+                    changed |= (ui.label("PML Width:") | egui::DragValue::new(&mut self.pml_width).speed(1).ui(ui))
+                        .on_hover_text("How many cells wide the PML is")
+                        .changed();
+                });
+            });
+        }).header_response.on_hover_text("Uniaxial Perfectly Matched Layer to emulate a \"boundless\" simulation");
 
         ui.horizontal(|ui| {
             let prev_started = self.started;
@@ -309,6 +327,10 @@ impl Default for SimulationControlUi2 {
             grid_z_level: 0.,
             stability_values2: StabilityValues2::default(),
             soft_source_pos: Vec2::ZERO,
+
+            pml_enabled: true,
+            pml_width: 12,
+
             started: false,
             paused: false,
             just_started: false,
