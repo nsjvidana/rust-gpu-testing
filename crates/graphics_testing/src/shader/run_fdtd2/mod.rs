@@ -8,14 +8,12 @@ use khal::Shader;
 use kiss3d::egui::Widget;
 use glamx::*;
 use kiss3d::prelude::*;
-use shader_crate::fdtd2::{Fdtd2, Fdtd2New, FieldValues2, GpuSource2, GridCell2, GridInfo2, MaterialConstants2, SoftSource2};
+use shader_crate::fdtd2::{Fdtd2New, FieldValues2, GpuSource2, GridCell2, GridInfo2, MaterialConstants2};
 use shader_crate::vector_to_flat_idx;
 
 #[derive(Shader)]
 struct GpuKernels2 {
-    fdtd2: Fdtd2,
     fdtd2_new: Fdtd2New,
-    soft_source2: SoftSource2,
 }
 
 pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
@@ -141,42 +139,6 @@ impl FdtdData2 {
         self.grid.cells.resize(self.grid.grid_dim.element_product() as usize, GridCell2::default());
     }
 
-    pub fn create_gpu(&mut self, steps_per_submission: usize, backend: &GpuBackend) -> GpuResult<GpuFdtd2> {
-        let grid_dim3 = UVec3::from((self.grid.grid_dim, 1));
-        self.prepare_materials();
-
-        let step_counter = 0;
-
-        let gpu_fdtd = GpuFdtd2 {
-            cells: self.grid.cells.create_gpu_buffer_readable(backend)?,
-            grid_info: GridInfo2 {
-                grid_dim: self.grid.grid_dim,
-                cell_size: self.grid.cell_size,
-                i_incr: UVec2::new(
-                    vector_to_flat_idx!(UVec3::X, grid_dim3),
-                    vector_to_flat_idx!(UVec3::Y, grid_dim3),
-                ),
-                dn_z_update_coeff: ElectricMaterial2::C_0 * self.dt,
-                _padding: 0
-            }.create_gpu_uniform(backend)?,
-            materials: self.materials.iter()
-                .map(|m| m.to_gpu(self.dt))
-                .collect::<Vec<_>>()
-                .create_gpu_buffer(backend)?,
-            source: GpuSource2 {
-                cell_idx: self.source_cell_idx,
-            }.create_gpu_buffer(backend)?,
-            source_vals: self.source.compute_source_values(self.dt)
-                .create_gpu_buffer(backend)?,
-            step_counter: step_counter.create_gpu_buffer(backend)?,
-
-            dispatch_grid: grid_dim3.map(|v| v.div_ceil(8)).to_array(),
-            steps_per_submission,
-        };
-
-        Ok(gpu_fdtd)
-    }
-
     pub fn create_gpu_new(&mut self, steps_per_submission: usize, backend: &GpuBackend) -> GpuResult<GpuFdtd2New> {
         let grid_dim3 = UVec3::from((self.grid.grid_dim, 1));
         let cell_count = grid_dim3.element_product() as usize;
@@ -207,49 +169,6 @@ impl FdtdData2 {
         };
 
         Ok(gpu_fdtd)
-    }
-}
-
-pub struct GpuFdtd2 {
-    pub grid_info: GpuBuffer<GridInfo2>,
-    pub cells: GpuBufferReadable<GridCell2>,
-    pub materials: GpuBuffer<MaterialConstants2>,
-    pub source: GpuBuffer<GpuSource2>,
-    pub source_vals: GpuBuffer<f32>,
-    pub step_counter: GpuBuffer<u32>,
-
-    pub dispatch_grid: [u32; 3],
-    pub steps_per_submission: usize,
-}
-
-impl GpuFdtd2 {
-    pub fn submit_step(&mut self, gpu_kernels: &GpuKernels2, backend: &GpuBackend) -> GpuResult<()> {
-        let mut encoder = backend.begin_encoding();
-
-        let mut pass = encoder.begin_pass("fdtd2", None);
-        for _ in 0..self.steps_per_submission {
-            gpu_kernels.fdtd2.call(
-                &mut pass,
-                DispatchGrid::Grid(self.dispatch_grid),
-                &mut self.cells.buffer,
-                &self.materials,
-                &self.grid_info
-            )?;
-            gpu_kernels.soft_source2.call(
-                &mut pass,
-                DispatchGrid::Grid([1, 1, 1]),
-                &mut self.cells.buffer,
-                &self.source,
-                &self.source_vals,
-                &mut self.step_counter
-            )?;
-        }
-        drop(pass);
-
-        self.cells.encode_copy_cmd(&mut encoder)?;
-
-        backend.submit(encoder)?;
-        Ok(())
     }
 }
 
