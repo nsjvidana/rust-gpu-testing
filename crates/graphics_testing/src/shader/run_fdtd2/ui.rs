@@ -11,6 +11,7 @@ use kiss3d::prelude::*;
 use glamx::*;
 use shader_crate::{flat_idx_to_vector, vector_to_flat_idx};
 use std::path::{Path, PathBuf};
+use shader_crate::fdtd2::PmlCoefficients2;
 
 pub struct TestbedWindow2 {
     pub window: Window,
@@ -195,9 +196,12 @@ impl TestbedWindow2 {
             stability_values2: stability,
             soft_source_pos,
             pml_enabled,
-            pml_width,
+            pml_x_lo,
+            pml_x_hi,
+            pml_y_lo,
+            pml_y_hi,
             ..
-        } = &self.simulation_control_ui;
+        } = self.simulation_control_ui.clone();
         let ImportedObjects {
             shapes: obj_shapes,
             scene_nodes: obj_nodes,
@@ -210,30 +214,31 @@ impl TestbedWindow2 {
         data.prepare_materials();
         data.materials.extend_from_slice(&obj_mats);
 
-        let pulse = GaussianPulse2::from_max_frequency(*source_max_frequency, 1.);
-        data.set_source(pulse, *source_resolution);
+        let pulse = GaussianPulse2::from_max_frequency(source_max_frequency, 1.);
+        data.set_source(pulse, source_resolution);
 
-        data.min_wavelength(*source_max_frequency, stability.cells_per_wavelength)
+        data.min_wavelength(source_max_frequency, stability.cells_per_wavelength)
             .cfl_condition(stability.dt_multiplier);
 
         // Update grid dimensions & grid cells to encompass all objects
         let cell_size = data.grid.cell_size;
-        let mut offset_u = UVec2::splat(stability.spacer_region_width);
-        if *pml_enabled {
-            let pml_bb_offset = Vec3::from((offset_u.as_vec2() * cell_size, 0.));
+        let mut min_offset = UVec2::splat(stability.spacer_region_width);
+        let mut max_offset = min_offset;
+        if pml_enabled {
+            let pml_bb_offset = Vec3::from((min_offset.as_vec2() * cell_size, 0.));
             self.pml_bb = Some([
                 self.grid_bb[0] - pml_bb_offset,
                 self.grid_bb[1] + pml_bb_offset
             ]);
-            offset_u += UVec2::splat(*pml_width);
+            min_offset += UVec2::new(pml_x_lo, pml_y_lo);
+            max_offset += UVec2::new(pml_x_hi, pml_y_hi);
         }
         else {
             self.pml_bb = None;
         }
-        let grid_bb_offset = Vec3::from((offset_u.as_vec2() * cell_size, 0.));
         self.grid_bb_sim = [
-            self.grid_bb[0] - grid_bb_offset,
-            self.grid_bb[1] + grid_bb_offset
+            self.grid_bb[0] - Vec3::from((min_offset.as_vec2() * cell_size, 0.)),
+            self.grid_bb[1] + Vec3::from((max_offset.as_vec2() * cell_size, 0.))
         ];
         let bb_dimensions_sim = self.grid_bb_sim[1] - self.grid_bb_sim[0];
         data.grid.grid_dim = (bb_dimensions_sim.xy() / cell_size).ceil().as_uvec2();
@@ -251,9 +256,15 @@ impl TestbedWindow2 {
         data.grid.update_coeffs.resize(data.grid.cells.len(), bkg_update_coeff);
 
         // TODO: dielectric smoothing (using averaging?)
+
+        // PML
+        if pml_enabled {
+
+        }
     }
 }
 
+#[derive(Clone)]
 pub struct SimulationControlUi2 {
     pub source_max_frequency: f32,
     pub source_resolution: usize,
@@ -262,7 +273,10 @@ pub struct SimulationControlUi2 {
     pub soft_source_pos: Vec2,
 
     pub pml_enabled: bool,
-    pub pml_width: u32,
+    pub pml_x_lo: u32,
+    pub pml_x_hi: u32,
+    pub pml_y_lo: u32,
+    pub pml_y_hi: u32,
 
     pub started: bool,
     pub paused: bool,
@@ -302,13 +316,20 @@ impl SimulationControlUi2 {
             let mut ui_builder = egui::UiBuilder::new();
             if !self.pml_enabled { ui_builder = ui_builder.disabled() }
             ui.scope_builder(ui_builder, |ui| {
+                ui.label("Widths X:").on_hover_text("X width of PML (-X and +X sides respectively).");
                 ui.horizontal(|ui| {
-                    changed |= (ui.label("PML Width:") | egui::DragValue::new(&mut self.pml_width).speed(1).ui(ui))
-                        .on_hover_text("How many cells wide the PML is")
-                        .changed();
+                    changed |= egui::DragValue::new(&mut self.pml_x_lo).ui(ui).changed();
+                    changed |= egui::DragValue::new(&mut self.pml_x_hi).ui(ui).changed();
+                });
+                ui.label("Widths Y:").on_hover_text("Y width of PML (-Y and +Y sides respectively).");
+                ui.horizontal(|ui| {
+                    changed |= egui::DragValue::new(&mut self.pml_y_lo).ui(ui).changed();
+                    changed |= egui::DragValue::new(&mut self.pml_y_hi).ui(ui).changed();
                 });
             });
-        }).header_response.on_hover_text("Uniaxial Perfectly Matched Layer to emulate a \"boundless\" simulation");
+        })
+            .header_response
+            .on_hover_text("Uniaxial Perfectly Matched Layer to emulate a \"boundless\" simulation");
 
         ui.horizontal(|ui| {
             let prev_started = self.started;
@@ -346,7 +367,10 @@ impl Default for SimulationControlUi2 {
             soft_source_pos: Vec2::ZERO,
 
             pml_enabled: true,
-            pml_width: 12,
+            pml_x_lo: 12,
+            pml_x_hi: 12,
+            pml_y_lo: 12,
+            pml_y_hi: 12,
 
             started: false,
             paused: false,
@@ -356,6 +380,7 @@ impl Default for SimulationControlUi2 {
     }
 }
 
+#[derive(Clone)]
 pub struct StabilityValues2 {
     pub cells_per_wavelength: usize,
     pub dt_multiplier: f32,

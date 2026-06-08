@@ -8,7 +8,7 @@ use khal::Shader;
 use kiss3d::egui::Widget;
 use glamx::*;
 use kiss3d::prelude::*;
-use shader_crate::fdtd2::{Fdtd2, FieldValues2, GpuSource2, GridCell2, GridInfo2, MaterialConstants2};
+use shader_crate::fdtd2::{Fdtd2, FieldValues2, GpuSource2, GridCell2, GridInfo2, MaterialConstants2, PmlCoefficients2};
 use shader_crate::vector_to_flat_idx;
 
 #[derive(Shader)]
@@ -65,7 +65,8 @@ pub struct FdtdData2 {
     pub materials: Vec<ElectricMaterial2>,
     pub source: GaussianPulse2,
     /// Index of the cell where the soft source is injected.
-    pub source_cell_idx: u32
+    pub source_cell_idx: u32,
+    pub pml_coeffs: Option<PmlCoefficientData2>,
 }
 
 impl FdtdData2 {
@@ -76,6 +77,7 @@ impl FdtdData2 {
             materials: vec![],
             source: GaussianPulse2::default(),
             source_cell_idx: 0,
+            pml_coeffs: None
         }
     }
 
@@ -139,7 +141,7 @@ impl FdtdData2 {
         self.grid.cells.resize(self.grid.grid_dim.element_product() as usize, GridCell2::default());
     }
 
-    pub fn to_gpu_runner(&mut self, steps_per_submission: usize, backend: &GpuBackend) -> GpuResult<GpuFdtd2> {
+    pub fn to_gpu_runner(&self, steps_per_submission: usize, backend: &GpuBackend) -> GpuResult<GpuFdtd2> {
         let grid_dim3 = UVec3::from((self.grid.grid_dim, 1));
         let cell_count = grid_dim3.element_product() as usize;
         let step_counter = 0;
@@ -170,6 +172,13 @@ impl FdtdData2 {
 
         Ok(gpu_fdtd)
     }
+}
+
+pub struct PmlCoefficientData2 {
+    pub x_lo: Vec<PmlCoefficients2>,
+    pub x_hi: Vec<PmlCoefficients2>,
+    pub y_lo: Vec<PmlCoefficients2>,
+    pub y_hi: Vec<PmlCoefficients2>,
 }
 
 pub struct GpuFdtd2 {

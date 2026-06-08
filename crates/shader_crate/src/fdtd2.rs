@@ -121,3 +121,10 @@ pub struct MaterialConstants2 {
 pub struct GpuSource2 {
     pub cell_idx: u32 // TODO: change to tf/sf later on
 }
+
+#[derive(Copy, Clone, Pod, Zeroable, Default)]
+#[repr(C)]
+pub struct PmlCoefficients2 {
+    pub h_coeffs: [Vec2; 4],
+    pub dn_z_coeffs: [f32; 4],
+}
