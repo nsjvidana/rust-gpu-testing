@@ -26,6 +26,7 @@ pub struct TestbedWindow2 {
     /// The `[min, max]` of the FDTD grid's bounds. Includes the Z-level of the 2D grid
     pub grid_bb: [Vec3; 2],
     pub grid_bb_sim: [Vec3; 2],
+    pub pml_bb: Option<[Vec3; 2]>,
     pub cell_positions: Vec<Vec3>,
     pub alpha_threshold: f32,
 }
@@ -54,6 +55,7 @@ impl TestbedWindow2 {
             en_color: RED,
             grid_bb: [Vec3::ZERO; 2],
             grid_bb_sim: [Vec3::ZERO; 2],
+            pml_bb: None,
             cell_positions: vec![],
             alpha_threshold,
         }
@@ -116,6 +118,9 @@ impl TestbedWindow2 {
         }
 
         draw_bb(&mut self.window, self.grid_bb, WHITE, 2., false);
+        if let Some(bb) = self.pml_bb {
+            draw_bb(&mut self.window, bb, GRAY, 2., false);
+        }
 
         let pos = Vec3::from((self.simulation_control_ui.soft_source_pos, self.simulation_control_ui.grid_z_level));
         self.window.draw_point(pos, RED, 10.);
@@ -189,6 +194,8 @@ impl TestbedWindow2 {
             source_resolution,
             stability_values2: stability,
             soft_source_pos,
+            pml_enabled,
+            pml_width,
             ..
         } = &self.simulation_control_ui;
         let ImportedObjects {
@@ -211,12 +218,22 @@ impl TestbedWindow2 {
 
         // Update grid dimensions & grid cells to encompass all objects
         let cell_size = data.grid.cell_size;
-        let spacer_region_offset = Vec3::from(
-            (stability.spacer_region_width as f32 * cell_size, 0.)
-        );
+        let mut offset = stability.spacer_region_width as f32 * cell_size;
+        if *pml_enabled {
+            let pml_bb_offset = Vec3::from((offset, 0.));
+            self.pml_bb = Some([
+                self.grid_bb[0] - pml_bb_offset,
+                self.grid_bb[1] + pml_bb_offset
+            ]);
+            offset += *pml_width as f32 * cell_size;
+        }
+        else {
+            self.pml_bb = None;
+        }
+        let grid_bb_offset = Vec3::from((offset, 0.));
         self.grid_bb_sim = [
-            self.grid_bb[0] - spacer_region_offset,
-            self.grid_bb[1] + spacer_region_offset
+            self.grid_bb[0] - grid_bb_offset,
+            self.grid_bb[1] + grid_bb_offset
         ];
         let bb_dimensions_sim = self.grid_bb_sim[1] - self.grid_bb_sim[0];
         data.grid.grid_dim = (bb_dimensions_sim.xy() / cell_size).ceil().as_uvec2();
