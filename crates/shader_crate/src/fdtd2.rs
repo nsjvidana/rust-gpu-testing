@@ -128,3 +128,11 @@ pub struct PmlCoefficients2 {
     pub h_coeffs: [Vec2; 4],
     pub dn_z_coeffs: [f32; 4],
 }
+
+#[derive(Copy, Clone, Pod, Zeroable, Default)]
+#[repr(C)]
+pub struct PmlIntegrations {
+    pub e_curl: Vec2,
+    pub dn_z: f32,
+    pub _padding: u32,
+}
