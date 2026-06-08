@@ -218,19 +218,19 @@ impl TestbedWindow2 {
 
         // Update grid dimensions & grid cells to encompass all objects
         let cell_size = data.grid.cell_size;
-        let mut offset = stability.spacer_region_width as f32 * cell_size;
+        let mut offset_u = UVec2::splat(stability.spacer_region_width);
         if *pml_enabled {
-            let pml_bb_offset = Vec3::from((offset, 0.));
+            let pml_bb_offset = Vec3::from((offset_u.as_vec2() * cell_size, 0.));
             self.pml_bb = Some([
                 self.grid_bb[0] - pml_bb_offset,
                 self.grid_bb[1] + pml_bb_offset
             ]);
-            offset += *pml_width as f32 * cell_size;
+            offset_u += UVec2::splat(*pml_width);
         }
         else {
             self.pml_bb = None;
         }
-        let grid_bb_offset = Vec3::from((offset, 0.));
+        let grid_bb_offset = Vec3::from((offset_u.as_vec2() * cell_size, 0.));
         self.grid_bb_sim = [
             self.grid_bb[0] - grid_bb_offset,
             self.grid_bb[1] + grid_bb_offset
@@ -359,7 +359,7 @@ impl Default for SimulationControlUi2 {
 pub struct StabilityValues2 {
     pub cells_per_wavelength: usize,
     pub dt_multiplier: f32,
-    pub spacer_region_width: usize,
+    pub spacer_region_width: u32,
     pub material_smoothing_resolution: u32,
 }
 
