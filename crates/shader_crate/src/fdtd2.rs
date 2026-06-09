@@ -1,6 +1,6 @@
 use crate::{vector_to_flat_idx, USizeVec2};
 use bytemuck::{Pod, Zeroable};
-use khal_std::glamx::{UVec2, UVec3, Vec2, Vec3Swizzles};
+use khal_std::glamx::{UVec2, UVec3, Vec2, Vec3Swizzles, Vec4};
 use khal_std::macros::{spirv, spirv_bindgen};
 use khal_std::sync::workgroup_memory_barrier_with_group_sync;
 
@@ -126,7 +126,7 @@ pub struct GpuSource2 {
 #[repr(C)]
 pub struct PmlCoefficients2 {
     pub h_coeffs: [Vec2; 4],
-    pub dn_z_coeffs: [f32; 4],
+    pub dn_z_coeffs: Vec4,
 }
 
 #[derive(Copy, Clone, Pod, Zeroable, Default)]

@@ -66,7 +66,7 @@ pub struct FdtdData2 {
     pub source: GaussianPulse2,
     /// Index of the cell where the soft source is injected.
     pub source_cell_idx: u32,
-    pub pml_coeffs: Option<PmlData2>,
+    pub pml_data: Option<PmlData2>,
 }
 
 impl FdtdData2 {
@@ -77,7 +77,7 @@ impl FdtdData2 {
             materials: vec![],
             source: GaussianPulse2::default(),
             source_cell_idx: 0,
-            pml_coeffs: None
+            pml_data: None
         }
     }
 

@@ -1,6 +1,6 @@
 use crate::error::ObjectError;
 use crate::prelude::GpuResult;
-use crate::shader::run_fdtd2::{ElectricMaterial2, FdtdData2, FdtdGrid2, GaussianPulse2};
+use crate::shader::run_fdtd2::{ElectricMaterial2, FdtdData2, FdtdGrid2, GaussianPulse2, PmlData2};
 use crate::shader::ImportedObjects;
 use crate::shader::{parry3d, parrymath};
 use crate::util::draw_bb;
@@ -11,7 +11,7 @@ use kiss3d::prelude::*;
 use glamx::*;
 use shader_crate::{flat_idx_to_vector, vector_to_flat_idx};
 use std::path::{Path, PathBuf};
-use shader_crate::fdtd2::PmlCoefficients2;
+use shader_crate::fdtd2::{PmlCoefficients2, PmlIntegrations};
 
 pub struct TestbedWindow2 {
     pub window: Window,
@@ -259,7 +259,68 @@ impl TestbedWindow2 {
 
         // PML
         if pml_enabled {
+            let sig_max = ElectricMaterial2::EPS_0 / (2. * data.dt);
+            let pml_x_lo = pml_x_lo as f32;
+            let pml_x_hi = pml_x_hi as f32;
+            let pml_y_lo = pml_y_lo as f32;
+            let pml_y_hi = pml_y_hi as f32;
+            let sig_x = (0..=grid_dim3.x*2)
+                .map(|i| {
+                    let lo_dist = i as f32 / 2.;
+                    let hi_dist = grid_dim3.x as f32 - lo_dist;
+                    let lo_interpol = (1. - lo_dist / pml_x_lo).max(0.);
+                    let hi_interpol = (1. - hi_dist / pml_x_hi).max(0.);
+                    sig_max * (lo_interpol + hi_interpol)
+                })
+                .collect::<Vec<_>>();
+            let sig_y = (0..=grid_dim3.y*2)
+                .map(|i| {
+                    let lo_dist = i as f32 / 2.;
+                    let hi_dist = grid_dim3.y as f32 - lo_dist;
+                    let lo_interpol = (1. - lo_dist / pml_y_lo).max(0.);
+                    let hi_interpol = (1. - hi_dist / pml_y_hi).max(0.);
+                    sig_max * (lo_interpol + hi_interpol)
+                })
+                .collect::<Vec<_>>();
 
+            let dt_recip = data.dt.recip();
+            let e0_2_recip = (2. * ElectricMaterial2::EPS_0).recip();
+            let frac_c0dt_eps0 = ElectricMaterial2::C_0 * data.dt / ElectricMaterial2::EPS_0;
+            let frac_dt_4e02 = data.dt / (4. * ElectricMaterial2::EPS_0.powi(2));
+            let mut coeffs = vec![PmlCoefficients2::default(); data.grid.cells.len()];
+            for (i, coeffs) in coeffs.iter_mut()
+                .enumerate()
+            {
+                let idx = flat_idx_to_vector!(i as u32, grid_dim3, UVec3).xy()
+                    .as_usizevec2();
+
+                let sig_idx = idx * 2;
+                let sig = Vec2::new(sig_x[sig_idx.x], sig_y[sig_idx.y]);
+                let sig_staggered = Vec2::new(sig_x[sig_idx.x + 1], sig_y[sig_idx.y + 1]);
+
+                coeffs.h_coeffs[0] = Vec2::new(
+                    dt_recip + sig_staggered.y * e0_2_recip,
+                    dt_recip + sig_staggered.x * e0_2_recip
+                );
+                coeffs.h_coeffs[1] = coeffs.h_coeffs[0].recip() * (dt_recip - sig_staggered.yx() * e0_2_recip);
+                let coeff0_mu_r = data.materials[0].mu_r * coeffs.h_coeffs[0];
+                coeffs.h_coeffs[2] = -ElectricMaterial2::C_0 / coeff0_mu_r;
+                coeffs.h_coeffs[3] = -frac_c0dt_eps0 * sig / coeff0_mu_r; // TODO: change to sig_staggered if not working properly
+
+                coeffs.dn_z_coeffs[0] = dt_recip + sig.element_sum() * e0_2_recip +
+                    sig.element_product() * frac_dt_4e02;
+                let dn_z_coeff0_recip = coeffs.dn_z_coeffs[0].recip();
+                coeffs.dn_z_coeffs[1] = dn_z_coeff0_recip *
+                    dt_recip - sig.element_sum() * e0_2_recip -
+                    sig.element_product() * frac_dt_4e02;
+                coeffs.dn_z_coeffs[2] = ElectricMaterial2::C_0 * dn_z_coeff0_recip;
+                coeffs.dn_z_coeffs[3] = -data.dt / ElectricMaterial2::EPS_0.powi(2) * sig.element_product() * dn_z_coeff0_recip;
+            }
+
+            data.pml_data = Some(PmlData2 {
+                coeffs,
+                integrations: vec![PmlIntegrations::default(); data.grid.cells.len()],
+            });
         }
     }
 }
