@@ -11,7 +11,7 @@ use kiss3d::prelude::*;
 use glamx::*;
 use shader_crate::{flat_idx_to_vector, vector_to_flat_idx};
 use std::path::{Path, PathBuf};
-use shader_crate::fdtd2::{PmlCoefficients2, PmlIntegrations};
+use shader_crate::fdtd2::{PmlCoefficients2, PmlIntegrations2};
 
 pub struct TestbedWindow2 {
     pub window: Window,
@@ -307,19 +307,19 @@ impl TestbedWindow2 {
                 coeffs.h_coeffs[2] = -ElectricMaterial2::C_0 / coeff0_mu_r;
                 coeffs.h_coeffs[3] = -frac_c0dt_eps0 * sig / coeff0_mu_r; // TODO: change to sig_staggered if not working properly
 
-                coeffs.dn_z_coeffs[0] = dt_recip + sig.element_sum() * e0_2_recip +
+                let dn_z_coeff0 = dt_recip + sig.element_sum() * e0_2_recip +
                     sig.element_product() * frac_dt_4e02;
-                let dn_z_coeff0_recip = coeffs.dn_z_coeffs[0].recip();
-                coeffs.dn_z_coeffs[1] = dn_z_coeff0_recip *
+                let dn_z_coeff0_recip = dn_z_coeff0.recip();
+                coeffs.dn_z_coeffs[0] = dn_z_coeff0_recip *
                     dt_recip - sig.element_sum() * e0_2_recip -
                     sig.element_product() * frac_dt_4e02;
-                coeffs.dn_z_coeffs[2] = ElectricMaterial2::C_0 * dn_z_coeff0_recip;
-                coeffs.dn_z_coeffs[3] = -data.dt / ElectricMaterial2::EPS_0.powi(2) * sig.element_product() * dn_z_coeff0_recip;
+                coeffs.dn_z_coeffs[1] = ElectricMaterial2::C_0 * dn_z_coeff0_recip;
+                coeffs.dn_z_coeffs[2] = -data.dt / ElectricMaterial2::EPS_0.powi(2) * sig.element_product() * dn_z_coeff0_recip;
             }
 
             data.pml_data = Some(PmlData2 {
                 coeffs,
-                integrations: vec![PmlIntegrations::default(); data.grid.cells.len()],
+                integrations: vec![PmlIntegrations2::default(); data.grid.cells.len()],
             });
         }
     }

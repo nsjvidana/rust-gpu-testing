@@ -8,12 +8,13 @@ use khal::Shader;
 use kiss3d::egui::Widget;
 use glamx::*;
 use kiss3d::prelude::*;
-use shader_crate::fdtd2::{Fdtd2, FieldValues2, GpuSource2, GridCell2, GridInfo2, MaterialConstants2, PmlCoefficients2, PmlIntegrations};
+use shader_crate::fdtd2::{Fdtd2, Fdtd2Pml, FieldValues2, GpuSource2, GridCell2, GridInfo2, MaterialConstants2, PmlCoefficients2, PmlIntegrations2};
 use shader_crate::vector_to_flat_idx;
 
 #[derive(Shader)]
 struct GpuKernels2 {
     fdtd2: Fdtd2,
+    fdtd2_pml: Fdtd2Pml,
 }
 
 pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
@@ -176,7 +177,7 @@ impl FdtdData2 {
 
 pub struct PmlData2 {
     pub coeffs: Vec<PmlCoefficients2>,
-    pub integrations: Vec<PmlIntegrations>
+    pub integrations: Vec<PmlIntegrations2>
 }
 
 pub struct GpuFdtd2 {
