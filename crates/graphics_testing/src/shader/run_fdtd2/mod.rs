@@ -44,7 +44,12 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
                 let mut field_vals = vec![FieldValues2::default(); runner.field_values.buffer.len()];
 
                 runner.field_values.read(backend, &mut field_vals).await?;
-                runner.submit_step(&gpu_kernels.fdtd2, backend)?;
+                if runner.pml_buffers.is_some() {
+                    runner.submit_step_pml(&gpu_kernels.fdtd2_pml, backend)?
+                }
+                else {
+                    runner.submit_step(&gpu_kernels.fdtd2, backend)?;
+                }
 
                 for (c, field_vals) in data.grid.cells.iter_mut()
                     .zip(&field_vals)
@@ -147,6 +152,13 @@ impl FdtdData2 {
         let cell_count = grid_dim3.element_product() as usize;
         let step_counter = 0;
 
+        let pml_buffers = if let Some(pml) = &self.pml_data {
+            Some(PmlBuffers2 {
+                integrations: pml.integrations.create_gpu_buffer(backend)?,
+                update_coeffs: pml.coeffs.create_gpu_buffer(backend)?,
+            })
+        } else { None };
+
         let gpu_fdtd = GpuFdtd2 {
             grid_info: GridInfo2 {
                 grid_dim: self.grid.grid_dim,
@@ -166,6 +178,8 @@ impl FdtdData2 {
             source_vals: self.source.compute_source_values(self.dt)
                 .create_gpu_buffer(backend)?,
             step_counter: step_counter.create_gpu_buffer(backend)?,
+
+            pml_buffers,
 
             dispatch_grid: grid_dim3.map(|v| v.div_ceil(8)).to_array(),
             steps_per_submission,
@@ -188,6 +202,8 @@ pub struct GpuFdtd2 {
     pub source_vals: GpuBuffer<f32>,
     pub step_counter: GpuBuffer<u32>,
 
+    pub pml_buffers: Option<PmlBuffers2>,
+
     pub dispatch_grid: [u32; 3],
     pub steps_per_submission: usize,
 }
@@ -203,6 +219,9 @@ impl GpuFdtd2 {
             source,
             source_vals,
             step_counter,
+
+            pml_buffers: _,
+
             dispatch_grid,
             steps_per_submission
         } = self;
@@ -227,6 +246,53 @@ impl GpuFdtd2 {
         backend.submit(encoder)?;
         Ok(())
     }
+
+    pub fn submit_step_pml(&mut self, fdtd2_pml: &Fdtd2Pml, backend: &GpuBackend) -> GpuResult<()> {
+        let mut encoder = backend.begin_encoding();
+
+        let Self {
+            field_values,
+            pml_buffers,
+            source,
+            source_vals,
+            step_counter,
+            grid_info,
+
+            dispatch_grid,
+            steps_per_submission,
+            ..
+        } = self;
+        let PmlBuffers2 {
+            integrations,
+            update_coeffs,
+        } = pml_buffers.as_mut().expect("No PML buffers in this runner!");
+
+        let mut pass = encoder.begin_pass("fdtd2", None);
+        for _ in 0..*steps_per_submission {
+            fdtd2_pml.call(
+                &mut pass,
+                DispatchGrid::Grid(*dispatch_grid),
+                &mut field_values.buffer,
+                integrations,
+                update_coeffs,
+                source,
+                source_vals,
+                step_counter,
+                grid_info,
+            )?;
+        }
+        drop(pass);
+
+        field_values.encode_copy_cmd(&mut encoder)?;
+
+        backend.submit(encoder)?;
+        Ok(())
+    }
+}
+
+pub struct PmlBuffers2 {
+    integrations: GpuBuffer<PmlIntegrations2>,
+    update_coeffs: GpuBuffer<PmlCoefficients2>,
 }
 
 pub struct FdtdGrid2 {
