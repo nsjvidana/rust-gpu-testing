@@ -119,15 +119,15 @@ impl TestbedWindow2 {
         }
 
         draw_bb(&mut self.window, self.grid_bb, WHITE, 2., false);
-        if let Some(bb) = self.pml_bb {
-            draw_bb(&mut self.window, bb, GRAY, 2., false);
-        }
 
         let pos = Vec3::from((self.simulation_control_ui.soft_source_pos, self.simulation_control_ui.grid_z_level));
         self.window.draw_point(pos, RED, 10.);
 
         if self.simulation_control_ui.started {
             draw_bb(&mut self.window, self.grid_bb_sim, ORANGE, 2., false);
+            if let Some(bb) = self.pml_bb {
+                draw_bb(&mut self.window, bb, GRAY, 2., false);
+            }
         }
     }
 
@@ -284,9 +284,12 @@ impl TestbedWindow2 {
                 .collect::<Vec<_>>();
 
             let dt_recip = data.dt.recip();
-            let e0_2_recip = (2. * ElectricMaterial2::EPS_0).recip();
-            let frac_c0dt_eps0 = ElectricMaterial2::C_0 * data.dt / ElectricMaterial2::EPS_0;
-            let frac_dt_4e02 = data.dt / (4. * ElectricMaterial2::EPS_0.powi(2));
+            const E0: f32 = ElectricMaterial2::EPS_0;
+            const C0: f32 = ElectricMaterial2::C_0;
+            const E0_2_RECIP: f32 = (2. * E0).recip();
+            let frac_c0dt_eps0 = C0 * data.dt / E0;
+            let frac_dt_4e0sq = data.dt / (4. * E0.powi(2));
+            let frac_dt_e0sq = data.dt / E0.powi(2);
             let mut coeffs = vec![PmlCoefficients2::default(); data.grid.cells.len()];
             for (i, coeffs) in coeffs.iter_mut()
                 .enumerate()
@@ -298,23 +301,22 @@ impl TestbedWindow2 {
                 let sig = Vec2::new(sig_x[sig_idx.x], sig_y[sig_idx.y]);
                 let sig_staggered = Vec2::new(sig_x[sig_idx.x + 1], sig_y[sig_idx.y + 1]);
 
-                coeffs.h_coeffs[0] = Vec2::new(
-                    dt_recip + sig_staggered.y * e0_2_recip,
-                    dt_recip + sig_staggered.x * e0_2_recip
-                );
-                coeffs.h_coeffs[1] = coeffs.h_coeffs[0].recip() * (dt_recip - sig_staggered.yx() * e0_2_recip);
-                let coeff0_mu_r = data.materials[0].mu_r * coeffs.h_coeffs[0];
-                coeffs.h_coeffs[2] = -ElectricMaterial2::C_0 / coeff0_mu_r;
-                coeffs.h_coeffs[3] = -frac_c0dt_eps0 * sig / coeff0_mu_r; // TODO: change to sig_staggered if not working properly
+                coeffs.h_coeffs[0] = dt_recip + sig.yx() * E0_2_RECIP;
+                coeffs.h_coeffs[1] = (dt_recip - sig.yx() * E0_2_RECIP) / coeffs.h_coeffs[0];
+                let coeff0_mu_r = coeffs.h_coeffs[0] * data.materials[0].mu_r;
+                coeffs.h_coeffs[2] = -C0 / coeff0_mu_r;
+                coeffs.h_coeffs[3] = -frac_c0dt_eps0 * sig_staggered.xy() / coeff0_mu_r;
 
-                let dn_z_coeff0 = dt_recip + sig.element_sum() * e0_2_recip +
-                    sig.element_product() * frac_dt_4e02;
+                let dn_z_coeff0 = dt_recip + sig.element_sum() * E0_2_RECIP +
+                    sig.element_product() * frac_dt_4e0sq;
                 let dn_z_coeff0_recip = dn_z_coeff0.recip();
                 coeffs.dn_z_coeffs[0] = dn_z_coeff0_recip *
-                    dt_recip - sig.element_sum() * e0_2_recip -
-                    sig.element_product() * frac_dt_4e02;
-                coeffs.dn_z_coeffs[1] = ElectricMaterial2::C_0 * dn_z_coeff0_recip;
-                coeffs.dn_z_coeffs[2] = -data.dt / ElectricMaterial2::EPS_0.powi(2) * sig.element_product() * dn_z_coeff0_recip;
+                    (dt_recip - sig.element_sum() * E0_2_RECIP -
+                    sig.element_product() * frac_dt_4e0sq);
+                coeffs.dn_z_coeffs[1] = C0 * dn_z_coeff0_recip;
+                coeffs.dn_z_coeffs[2] = -frac_dt_e0sq * sig.element_product() * dn_z_coeff0_recip;
+
+                coeffs.en_z_update_coeff = data.materials[0].eps_r_z.recip();
             }
 
             data.pml_data = Some(PmlData2 {

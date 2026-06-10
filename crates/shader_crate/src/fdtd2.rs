@@ -60,9 +60,6 @@ pub fn fdtd2(
     // Update En field
     field_values[idx].en_z = update_coeffs.en_z_update_coeff * field_values[idx].dn_z;
 
-    // Write back results
-    // field_values[idx] = field_values[idx];
-
     if idx == 0 {
         *step_counter += 1;
     }
@@ -133,9 +130,6 @@ pub fn fdtd2_pml(
 
     // Update En field
     field_values[idx].en_z = update_coeffs.en_z_update_coeff * field_values[idx].dn_z;
-
-    // Write back results
-    // field_values[idx] = field_values[idx];
 
     if idx == 0 {
         *step_counter += 1;
