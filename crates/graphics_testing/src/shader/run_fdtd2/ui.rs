@@ -2,7 +2,6 @@ use crate::error::ObjectError;
 use crate::prelude::GpuResult;
 use crate::shader::run_fdtd2::{ElectricMaterial2, FdtdData2, FdtdGrid2, GaussianPulse2, PmlData2};
 use crate::shader::ImportedObjects;
-use crate::shader::{parry3d, parrymath};
 use crate::util::draw_bb;
 use itertools::izip;
 use kiss3d::egui;
@@ -155,8 +154,8 @@ impl TestbedWindow2 {
         let mut max = Vec3::ZERO;
         for (node, shape) in izip!(scene_nodes, shapes) {
             let aabb = shape.shape.compute_local_aabb();
-            let new_min = Vec3::from_array(aabb.mins.to_array()) + node.position();
-            let new_max = Vec3::from_array(aabb.maxs.to_array()) + node.position();
+            let new_min = aabb.mins + node.position();
+            let new_max = aabb.maxs + node.position();
             min = min.min(new_min);
             max = max.max(new_max);
         }
@@ -261,7 +260,7 @@ impl TestbedWindow2 {
         let bkg_update_coeff = data.materials[0].to_gpu(data.dt);
         data.grid.update_coeffs.clear();
         data.grid.update_coeffs.resize(data.grid.cells.len(), bkg_update_coeff);
-        
+
         // TODO: dielectric smoothing (using averaging?)
 
         // PML

@@ -15,8 +15,8 @@ unexpected_cfgs = { level = "allow", check-cfg = ['cfg(target_arch, values("spir
 [workspace.dependencies]
 kiss3d = { version = "0.43.0", features = ["egui"] }
 egui_plot = { version = "0.35.0" }
-rapier3d-meshloader = { version = "0.13.0", features = ["stl", "collada", "wavefront"] }
-rapier3d = "*"
+rapier3d-meshloader = { version = "0.33.0", features = ["stl", "collada", "wavefront"] }
+rapier3d = "0.33.0"
 glamx = { version = "0.3", features = ["bytemuck"] }
 pollster = "0.4.0"
 bytemuck = { version = "*", features = ["derive"]}

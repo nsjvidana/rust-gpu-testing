@@ -1,12 +1,10 @@
 use crate::error::ObjectError;
+use glamx::Vec3;
 use kiss3d::prelude::SceneNode3d;
+use kiss3d::procedural::{IndexBuffer, RenderMesh};
 use rapier3d::geometry::MeshConverter;
 use rapier3d_meshloader::*;
 use std::path::Path;
-use glamx::Vec3;
-use kiss3d::procedural::{IndexBuffer, RenderMesh};
-pub use rapier3d::parry as parry3d;
-pub use parry3d::math as parrymath;
 
 pub mod run_fdtd1;
 pub mod run_fdtd2;
@@ -27,7 +25,7 @@ impl<Material: Default> ImportedObjects<Material> {
     pub fn extend_from_path(&mut self, path: impl AsRef<Path>, scene: &mut SceneNode3d) -> Result<(), Vec<ObjectError>> {
         // TODO: use MeshConverter::ConvexDecomposition / MeshConverter::ConvexDecompositionWithParams()
         let result =
-            load_from_path(path, &MeshConverter::TriMesh, rapier3d::math::Vec3::ONE);
+            load_from_path(path, &MeshConverter::TriMesh, Vec3::ONE);
         if result.is_err() {
             return Err(vec![ObjectError::MeshLoaderError(result.err().unwrap())])
         }
