@@ -209,52 +209,59 @@ impl TestbedWindow2 {
             ..
         } = &self.object_explorer_ui.imported_objects;
 
-
+        // Reset materials
         data.materials.truncate(1);
         data.prepare_materials();
         data.materials.extend_from_slice(&obj_mats);
 
+        // Update source
         let pulse = GaussianPulse2::from_max_frequency(source_max_frequency, 1.);
         data.set_source(pulse, source_resolution);
 
+        // Stability conditions
         data.min_wavelength(source_max_frequency, stability.cells_per_wavelength)
             .cfl_condition(stability.dt_multiplier);
+        let cell_size = data.grid.cell_size;
 
         // Update grid dimensions & grid cells to encompass all objects
-        let cell_size = data.grid.cell_size;
-        let mut min_offset = UVec2::splat(stability.spacer_region_width);
-        let mut max_offset = min_offset;
-        if pml_enabled {
-            let pml_bb_offset = Vec3::from((min_offset.as_vec2() * cell_size, 0.));
-            self.pml_bb = Some([
-                self.grid_bb[0] - pml_bb_offset,
-                self.grid_bb[1] + pml_bb_offset
-            ]);
-            min_offset += UVec2::new(pml_x_lo, pml_y_lo);
-            max_offset += UVec2::new(pml_x_hi, pml_y_hi);
+        {
+            let mut min_offset = UVec2::splat(stability.spacer_region_width);
+            let mut max_offset = min_offset;
+            if pml_enabled {
+                let pml_bb_offset = Vec3::from((min_offset.as_vec2() * cell_size, 0.));
+                self.pml_bb = Some([
+                    self.grid_bb[0] - pml_bb_offset,
+                    self.grid_bb[1] + pml_bb_offset
+                ]);
+                min_offset += UVec2::new(pml_x_lo, pml_y_lo);
+                max_offset += UVec2::new(pml_x_hi, pml_y_hi);
+            }
+            else {
+                self.pml_bb = None;
+            }
+            self.grid_bb_sim = [
+                self.grid_bb[0] - Vec3::from((min_offset.as_vec2() * cell_size, 0.)),
+                self.grid_bb[1] + Vec3::from((max_offset.as_vec2() * cell_size, 0.))
+            ];
+            let bb_dimensions_sim = self.grid_bb_sim[1] - self.grid_bb_sim[0];
+            data.grid.grid_dim = (bb_dimensions_sim.xy() / cell_size).ceil().as_uvec2();
+            data.grid.cells.clear();
+            data.update_cells();
         }
-        else {
-            self.pml_bb = None;
-        }
-        self.grid_bb_sim = [
-            self.grid_bb[0] - Vec3::from((min_offset.as_vec2() * cell_size, 0.)),
-            self.grid_bb[1] + Vec3::from((max_offset.as_vec2() * cell_size, 0.))
-        ];
-        let bb_dimensions_sim = self.grid_bb_sim[1] - self.grid_bb_sim[0];
-        data.grid.grid_dim = (bb_dimensions_sim.xy() / cell_size).ceil().as_uvec2();
-        data.grid.cells.clear();
-        data.update_cells();
+        let grid_dim3 = UVec3::from((data.grid.grid_dim, 1));
 
         // Update source cell index
-        let grid_dim3 = UVec3::from((data.grid.grid_dim, 1));
-        let src_pos = soft_source_pos - self.grid_bb_sim[0].xy();
-        let src_cell_idx = UVec3::from(((src_pos / cell_size).as_uvec2(), 0));
-        data.source_cell_idx = vector_to_flat_idx!(src_cell_idx, grid_dim3);
+        {
+            let src_pos = soft_source_pos - self.grid_bb_sim[0].xy();
+            let src_cell_idx = UVec3::from(((src_pos / cell_size).as_uvec2(), 0));
+            data.source_cell_idx = vector_to_flat_idx!(src_cell_idx, grid_dim3);
+        }
 
+        // Set default update coefficients
         let bkg_update_coeff = data.materials[0].to_gpu(data.dt);
         data.grid.update_coeffs.clear();
         data.grid.update_coeffs.resize(data.grid.cells.len(), bkg_update_coeff);
-
+        
         // TODO: dielectric smoothing (using averaging?)
 
         // PML
