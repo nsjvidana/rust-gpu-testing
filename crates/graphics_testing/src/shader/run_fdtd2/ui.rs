@@ -10,6 +10,7 @@ use kiss3d::prelude::*;
 use glamx::*;
 use shader_crate::{flat_idx_to_vector, vector_to_flat_idx};
 use std::path::{Path, PathBuf};
+use rapier3d_meshloader::LoadedShape;
 use shader_crate::fdtd2::{PmlCoefficients2, PmlIntegrations2};
 
 pub struct TestbedWindow2 {
@@ -193,7 +194,12 @@ impl TestbedWindow2 {
         let SimulationControlUi2 {
             source_max_frequency,
             source_resolution,
-            stability_values2: stability,
+            stability_values2: StabilityValues2 {
+                cells_per_wavelength,
+                dt_multiplier,
+                spacer_region_width,
+                material_smoothing_resolution
+            },
             soft_source_pos,
             pml_enabled,
             pml_x_lo,
@@ -202,6 +208,7 @@ impl TestbedWindow2 {
             pml_y_hi,
             ..
         } = self.simulation_control_ui.clone();
+
         let ImportedObjects {
             shapes: obj_shapes,
             scene_nodes: obj_nodes,
@@ -219,13 +226,14 @@ impl TestbedWindow2 {
         data.set_source(pulse, source_resolution);
 
         // Stability conditions
-        data.min_wavelength(source_max_frequency, stability.cells_per_wavelength)
-            .cfl_condition(stability.dt_multiplier);
+        data.min_wavelength(source_max_frequency, cells_per_wavelength)
+            .cfl_condition(dt_multiplier);
         let cell_size = data.grid.cell_size;
+        let cell_size3 = Vec3::from((cell_size, 0.));
 
         // Update grid dimensions & grid cells to encompass all objects
         {
-            let mut min_offset = UVec2::splat(stability.spacer_region_width);
+            let mut min_offset = UVec2::splat(spacer_region_width);
             let mut max_offset = min_offset;
             if pml_enabled {
                 let pml_bb_offset = Vec3::from((min_offset.as_vec2() * cell_size, 0.));
@@ -249,6 +257,7 @@ impl TestbedWindow2 {
             data.update_cells();
         }
         let grid_dim3 = UVec3::from((data.grid.grid_dim, 1));
+        let cell_count = grid_dim3.element_product() as usize;
 
         // Update source cell index
         {
@@ -262,8 +271,47 @@ impl TestbedWindow2 {
         data.grid.update_coeffs.clear();
         data.grid.update_coeffs.resize(data.grid.cells.len(), bkg_update_coeff);
 
-        // TODO: dielectric smoothing (using averaging?)
+        // Dielectric Smoothing (box convolution)
+        {
+            let n_sub_cells = material_smoothing_resolution.pow(2) as usize;
+            let mut sub_cell_offsets = vec![Vec3::ZERO; n_sub_cells];
+            let sub_cell_size3 = cell_size3 / material_smoothing_resolution as f32;
+            let mut idx = 0usize;
+            for j in 0..material_smoothing_resolution {
+                for i in 0..material_smoothing_resolution {
+                    sub_cell_offsets[idx] = Vec3::new(i as f32, j as f32, 0.) * sub_cell_size3;
+                    idx += 1;
+                }
+            }
+            idx = 0usize;
+            let n_sub_cells = n_sub_cells as f32;
+            for j in 0..grid_dim3.y {
+                for i in 0..grid_dim3.x {
+                    let dn_z_pos = self.grid_bb_sim[0] + Vec3::new(i as f32, j as f32, 0.) * cell_size3;
+                    let mut avg_mat = ElectricMaterial2 {
+                        eps_r_z: 0., mu_r: Vec2::ZERO, ..Default::default()
+                    };
+                    for off in sub_cell_offsets.iter() {
+                        let pt = dn_z_pos + off;
+                        let mat_idx = obj_shapes.iter()
+                            .zip(obj_nodes)
+                            .position(|(s, node)|
+                                s.shape.contains_point(&node.local_transformation(), pt)
+                            )
+                            .unwrap_or(0);
+                        let mat = data.materials[mat_idx];
+                        avg_mat.eps_r_z += mat.eps_r_z;
+                        avg_mat.mu_r += mat.mu_r;
+                    }
+                    avg_mat.eps_r_z /= n_sub_cells;
+                    avg_mat.mu_r /= n_sub_cells;
 
+                    data.grid.update_coeffs[idx] = avg_mat.to_gpu(data.dt);
+
+                    idx += 1;
+                }
+            }
+        }
 
         // PML
         if pml_enabled {
