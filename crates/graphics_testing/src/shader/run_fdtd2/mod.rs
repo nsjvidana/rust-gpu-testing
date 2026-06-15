@@ -31,7 +31,7 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
                 runner = None;
             }
             else {
-                runner = Some(data.to_gpu_runner(1, backend)?);
+                runner = Some(data.to_gpu_runner(sim.simulation_speed, backend)?);
             }
         }
         if sim.needs_reset {

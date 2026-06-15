@@ -264,6 +264,7 @@ impl TestbedWindow2 {
 
         // TODO: dielectric smoothing (using averaging?)
 
+
         // PML
         if pml_enabled {
             let sig_max = ElectricMaterial2::EPS_0 / (2. * data.dt);
@@ -348,6 +349,7 @@ pub struct SimulationControlUi2 {
     pub pml_y_lo: u32,
     pub pml_y_hi: u32,
 
+    pub simulation_speed: u32,
     pub steps: u32,
     pub started: bool,
     pub paused: bool,
@@ -403,6 +405,12 @@ impl SimulationControlUi2 {
             .on_hover_text("Uniaxial Perfectly Matched Layer to emulate a \"boundless\" simulation");
 
         ui.horizontal(|ui| {
+            ui.label("Simulation Speed: ");
+            changed |= egui::DragValue::new(&mut self.simulation_speed).range(1..=u32::MAX).ui(ui).changed();
+            ui.label("x");
+        });
+
+        ui.horizontal(|ui| {
             let prev_started = self.started;
             self.started |= ui.selectable_label(self.started, "Start").clicked();
             self.just_started = !prev_started && self.started;
@@ -447,6 +455,7 @@ impl Default for SimulationControlUi2 {
             pml_y_lo: 12,
             pml_y_hi: 12,
 
+            simulation_speed: 1,
             steps: 0,
             started: false,
             paused: false,
