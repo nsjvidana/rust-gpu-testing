@@ -5,13 +5,14 @@ use kiss3d::procedural::{IndexBuffer, RenderMesh};
 use rapier3d::geometry::MeshConverter;
 use rapier3d_meshloader::*;
 use std::path::Path;
+use rapier3d::parry::shape::{Ball, SharedShape};
 
 pub mod run_fdtd1;
 pub mod run_fdtd2;
 
 #[derive(Default)]
 pub struct ImportedObjects<Material: Default> {
-    pub shapes: Vec<LoadedShape>,
+    pub shapes: Vec<ImportedShape>,
     pub materials: Vec<Material>,
     pub scene_nodes: Vec<SceneNode3d>,
 }
@@ -48,13 +49,13 @@ impl<Material: Default> ImportedObjects<Material> {
             .collect::<Vec<_>>();
 
         let nodes = objs.iter()
-            .map(|o| {
+            .map(|obj| {
                 scene.add_render_mesh(
                     RenderMesh::new(
-                        o.raw_mesh.vertices.iter().map(|v| Vec3::from_array(*v)).collect(),
-                        Some(o.raw_mesh.normals.iter().map(|v| Vec3::from_array(*v)).collect()),
+                        obj.raw_mesh.vertices.iter().map(|v| Vec3::from_array(*v)).collect(),
+                        Some(obj.raw_mesh.normals.iter().map(|v| Vec3::from_array(*v)).collect()),
                         None,
-                        Some(IndexBuffer::Unified(o.raw_mesh.faces.clone()))
+                        Some(IndexBuffer::Unified(obj.raw_mesh.faces.clone()))
                     ),
                     Vec3::ONE
                 )
@@ -62,8 +63,35 @@ impl<Material: Default> ImportedObjects<Material> {
             .collect::<Vec<_>>();
         self.scene_nodes.extend(nodes);
 
-        self.shapes.extend(objs);
+        self.shapes.extend(objs.into_iter().map(|v| ImportedShape::Mesh(v)));
 
         Ok(())
+    }
+
+    pub fn push_ball(&mut self, name: String, shape: Ball, mat: Material, scene: &mut SceneNode3d) {
+        self.shapes.push(ImportedShape::Generic(name, SharedShape::new(shape)));
+        self.materials.push(mat);
+        self.scene_nodes.push(scene.add_sphere(shape.radius));
+    }
+}
+
+pub enum ImportedShape {
+    Mesh(LoadedShape),
+    Generic(String, SharedShape),
+}
+
+impl ImportedShape {
+    pub fn get_shape(&self) -> &SharedShape {
+        match self {
+            ImportedShape::Mesh(lshape) => &lshape.shape,
+            ImportedShape::Generic(_, shape) => shape
+        }
+    }
+
+    pub fn get_name(&self) -> &String {
+        match self {
+            ImportedShape::Mesh(lshape) => &lshape.raw_mesh.name,
+            ImportedShape::Generic(name, _) => name,
+        }
     }
 }

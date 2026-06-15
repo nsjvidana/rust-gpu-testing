@@ -155,7 +155,7 @@ impl TestbedWindow2 {
         let mut min = Vec3::MAX;
         let mut max = Vec3::ZERO;
         for (node, shape) in izip!(scene_nodes, shapes) {
-            let aabb = shape.shape.compute_local_aabb();
+            let aabb = shape.get_shape().compute_local_aabb();
             let new_min = aabb.mins + node.position();
             let new_max = aabb.maxs + node.position();
             min = min.min(new_min);
@@ -296,7 +296,7 @@ impl TestbedWindow2 {
                         let mat_idx = obj_shapes.iter()
                             .zip(obj_nodes)
                             .position(|(s, node)|
-                                s.shape.contains_point(&node.local_transformation(), pt)
+                                s.get_shape().contains_point(&node.local_transformation(), pt)
                             )
                             .unwrap_or(0);
                         let mat = data.materials[mat_idx];
@@ -609,7 +609,7 @@ impl ObjectExplorerUi {
             let mut pose  = node.local_transformation();
             let mut pose_changed = false;
             let mut mat_changed = false;
-            ui.collapsing(&shape.raw_mesh.name, |ui| {
+            ui.collapsing(shape.get_name(), |ui| {
                 pose_changed = pose_ui(&mut pose, 0.01, ui);
                 mat_changed = material_ui(mat, ui);
             });
