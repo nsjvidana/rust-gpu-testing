@@ -257,7 +257,6 @@ impl TestbedWindow2 {
             data.update_cells();
         }
         let grid_dim3 = UVec3::from((data.grid.grid_dim, 1));
-        let cell_count = grid_dim3.element_product() as usize;
 
         // Update source cell index
         {
@@ -298,6 +297,7 @@ impl TestbedWindow2 {
                             .position(|(s, node)|
                                 s.get_shape().contains_point(&node.local_transformation(), pt)
                             )
+                            .map(|v| v + 1)
                             .unwrap_or(0);
                         let mat = data.materials[mat_idx];
                         avg_mat.eps_r_z += mat.eps_r_z;
@@ -552,7 +552,7 @@ impl Default for StabilityValues2 {
             cells_per_wavelength: 10,
             dt_multiplier: 2.,
             spacer_region_width: 10,
-            material_smoothing_resolution: 1,
+            material_smoothing_resolution: 3,
         }
     }
 }
