@@ -50,6 +50,7 @@ pub async fn run_fdtd2(backend: &GpuBackend) -> GpuResult<()> {
                 else {
                     runner.submit_step(&gpu_kernels.fdtd2, backend)?;
                 }
+                sim.steps += runner.steps_per_submission;
 
                 for (c, field_vals) in data.grid.cells.iter_mut()
                     .zip(&field_vals)
@@ -147,7 +148,7 @@ impl FdtdData2 {
         self.grid.cells.resize(self.grid.grid_dim.element_product() as usize, GridCell2::default());
     }
 
-    pub fn to_gpu_runner(&self, steps_per_submission: usize, backend: &GpuBackend) -> GpuResult<GpuFdtd2> {
+    pub fn to_gpu_runner(&self, steps_per_submission: u32, backend: &GpuBackend) -> GpuResult<GpuFdtd2> {
         let grid_dim3 = UVec3::from((self.grid.grid_dim, 1));
         let cell_count = grid_dim3.element_product() as usize;
         let step_counter = 0;
@@ -205,7 +206,7 @@ pub struct GpuFdtd2 {
     pub pml_buffers: Option<PmlBuffers2>,
 
     pub dispatch_grid: [u32; 3],
-    pub steps_per_submission: usize,
+    pub steps_per_submission: u32,
 }
 
 impl GpuFdtd2 {

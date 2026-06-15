@@ -70,6 +70,7 @@ impl TestbedWindow2 {
 
         while self.window.render_3d(&mut self.scene, &mut self.camera).await {
             if self.simulation_control_ui.just_started {
+                self.simulation_control_ui.steps = 0;
                 self.update_simulation_data(data);
                 self.update_cell_positions(&data.grid);
             }
@@ -347,6 +348,7 @@ pub struct SimulationControlUi2 {
     pub pml_y_lo: u32,
     pub pml_y_hi: u32,
 
+    pub steps: u32,
     pub started: bool,
     pub paused: bool,
     pub just_started: bool,
@@ -415,6 +417,10 @@ impl SimulationControlUi2 {
             }
         });
 
+        if self.started {
+            ui.label(format!("Steps: {}", self.steps));
+        }
+
         changed
     }
 
@@ -441,6 +447,7 @@ impl Default for SimulationControlUi2 {
             pml_y_lo: 12,
             pml_y_hi: 12,
 
+            steps: 0,
             started: false,
             paused: false,
             just_started: false,
